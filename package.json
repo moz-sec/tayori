@@ -1,0 +1,22 @@
+{
+  "name": "tayori",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @tayori/app",
+    "dev:collector": "npm run dev --workspace @tayori/collector",
+    "build": "npm run build --workspace @tayori/app && npm run build --workspace @tayori/collector",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "deploy": "npm run deploy --workspace @tayori/app && npm run deploy --workspace @tayori/collector",
+    "db:migrate:local": "npm run db:migrate:local --workspace @tayori/app",
+    "db:migrate:remote": "npm run db:migrate:remote --workspace @tayori/app"
+  }
+}

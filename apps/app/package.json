@@ -1,0 +1,24 @@
+{
+  "name": "@tayori/app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cf dev",
+    "build": "cf build",
+    "deploy": "cf deploy",
+    "typecheck": "cf workers types && tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply tayori-db --local --config ./wrangler.jsonc",
+    "db:migrate:remote": "wrangler d1 migrations apply tayori-db --remote --config ./wrangler.jsonc"
+  },
+  "dependencies": {
+    "hono": "^4.13.11"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.44.0",
+    "@cloudflare/workers-types": "^5.20260929.1",
+    "cf": "1.0.0-beta.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4",
+    "wrangler": "^4.110.0"
+  }
+}

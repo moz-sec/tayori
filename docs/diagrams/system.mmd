@@ -1,0 +1,21 @@
+flowchart LR
+    U["本人のPC / スマートフォン"] --> A["Cloudflare Access"]
+    subgraph CF["Cloudflare / Free前提"]
+        A --> W["tayori-web Worker
+認証・API"]
+        W --> S["Static Assets
+React UI"]
+        W <--> D[("D1
+記事・購読・状態・ジョブ")]
+        C["Cron / 5分"] --> H["collector scheduled
+tick送信のみ"]
+        H --> Q["Queues
+tayori-jobs"]
+        Q --> F["collector queue
+tick / fetch"]
+        F -->|"fetchジョブ送信"| Q
+        F <--> D
+    end
+    F -->|"条件付きGET"| E["外部RSS / Atom"]
+    O["本人の運用CLI"] -. "SQL export / restore" .-> D
+    O --> B["手元のバックアップ"]

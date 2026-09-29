@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant T as 時間経過
+    participant W as Collector tick
+    participant D as D1
+    participant F as 次回RSS取得
+    T->>W: 1時間ごとの整理タイミング
+    W->>D: expires_at経過記事を小分け選定
+    alt 保存指定あり
+        W->>D: 保持
+    else 保存指定なし
+        W->>D: 現在の保存条件を再確認して記事削除
+        Note over D: item_keysは残す
+    end
+    F->>D: 同じ記事キーを照会
+    D-->>F: キーあり・記事なし
+    F->>F: 期限削除済みとして再作成しない

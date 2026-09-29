@@ -1,0 +1,60 @@
+erDiagram
+    FOLDERS o|--o{ FOLDERS : parent
+    FOLDERS o|--o{ SOURCES : contains
+    SOURCES ||--o{ ITEM_KEYS : identifies
+    ITEM_KEYS ||--o| ARTICLES : payload
+    ARTICLES ||--o{ BOARD_ARTICLES : saved
+    BOARDS ||--o{ BOARD_ARTICLES : contains
+    SOURCES ||--o{ FETCH_JOBS : collects
+    FOLDERS {
+        string id PK
+        string parent_id FK
+        string name
+    }
+    SOURCES {
+        string id PK
+        string folder_id FK
+        string normalized_url UK
+        string status
+        int next_fetch_at
+        int generation
+    }
+    ITEM_KEYS {
+        string id PK
+        string source_id FK
+        string key_hash
+        int first_seen_at
+    }
+    ARTICLES {
+        string id PK, FK
+        string title
+        int expires_at
+        int read_at
+        boolean starred
+        boolean read_later
+        int version
+    }
+    BOARDS {
+        string id PK
+        string name UK
+    }
+    BOARD_ARTICLES {
+        string board_id PK, FK
+        string article_id PK, FK
+    }
+    FETCH_JOBS {
+        string id PK
+        string source_id FK
+        string status
+        int generation
+        int lease_until
+    }
+    DAILY_USAGE {
+        string day_utc PK
+        int reserved_queue_ops
+        int new_articles
+    }
+    APP_STATE {
+        string key PK
+        string value
+    }

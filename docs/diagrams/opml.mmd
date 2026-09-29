@@ -1,0 +1,24 @@
+sequenceDiagram
+    actor U as 本人
+    participant B as ブラウザ
+    participant W as 認証済みAPI
+    participant D as D1
+    participant C as Collector
+    U->>B: FeedlyのOPMLを選択
+    B->>B: サイズ検証・XML解析・階層表示
+    B-->>U: 追加候補 / 重複 / 不正を表示
+    U->>B: インポート実行
+    loop 親フォルダから作成
+        B->>W: フォルダ作成
+        W->>D: 既存確認・登録
+        W-->>B: folderId
+    end
+    loop 購読先を最大5件ずつ
+        B->>W: 正規化候補を送信
+        W->>W: 入力再検証
+        W->>D: 一意制約で購読登録
+        W-->>B: 追加 / 既存 / エラー
+    end
+    B-->>U: 結果と未取得状態
+    C->>D: 次のtickで取得対象を選ぶ
+    Note over B,D: 中断後の再実行でも二重登録しない

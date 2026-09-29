@@ -1,0 +1,2 @@
+# Local-only example. Never put real credentials in this file.
+ALLOWED_EMAIL=you@example.com

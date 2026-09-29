@@ -1,0 +1,25 @@
+sequenceDiagram
+    actor U as 本人
+    participant B as ブラウザ
+    participant A as Access
+    participant W as Web Worker
+    participant D as D1
+    U->>B: Tayoriを開く
+    B->>A: 保護URLへアクセス
+    alt セッションなし
+        A-->>U: メールPINで本人認証
+        U->>A: PIN入力
+    end
+    A->>W: 認証情報付きリクエスト
+    W->>W: 署名・issuer・aud・期限・本人確認
+    alt 無効 / 設定不足
+        W-->>B: アクセス拒否
+    else 有効
+        W-->>B: UI配信
+        B->>A: 記事一覧API
+        A->>W: 認証情報付きAPI
+        W->>W: 再検証
+        W->>D: 期限と保存条件で一覧取得
+        D-->>W: 記事とcursor
+        W-->>B: private, no-store JSON
+    end
