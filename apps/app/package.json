@@ -3,22 +3,33 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cf dev",
-    "build": "cf build",
-    "deploy": "cf deploy",
-    "typecheck": "cf workers types && tsc --noEmit",
-    "db:migrate:local": "wrangler d1 migrations apply tayori-db --local --config ./wrangler.jsonc",
-    "db:migrate:remote": "wrangler d1 migrations apply tayori-db --remote --config ./wrangler.jsonc"
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "deploy": ": \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the remote D1 database ID}\" && npm run build && cf deploy --prebuilt --secrets-file \"${TAYORI_SECRETS_FILE:?Set TAYORI_SECRETS_FILE to the app secrets file path}\"",
+    "typecheck": "cf workers types && tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
+    "test": "vitest run --passWithNoTests --config vitest.config.ts",
+    "db:migrate:local": "cf d1 migrations apply \"${TAYORI_D1_DATABASE_ID:-00000000-0000-4000-8000-000000000001}\" --dir ../../migrations --local --persist-to .cloudflare/state",
+    "db:migrate:remote": "cf d1 migrations apply \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the D1 database ID}\" --dir ../../migrations"
   },
   "dependencies": {
-    "hono": "^4.13.11"
+    "@tayori/shared": "0.1.0",
+    "hono": "^4.13.11",
+    "jose": "^6.2.12",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.44.0",
+    "@cloudflare/vite-plugin": "^2.0.0-beta.sha-ad79608dd",
     "@cloudflare/workers-types": "^5.20260929.1",
-    "cf": "1.0.0-beta.5",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "cf": "^1.0.0-beta.5",
+    "daisyui": "^5.7.47",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^8.1.4",
-    "wrangler": "^4.110.0"
+    "vitest": "^5.0.2"
   }
 }

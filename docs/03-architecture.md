@@ -1,6 +1,6 @@
 # Cloudflareアーキテクチャ
 
-状態: 実装前の採用案。制限値の確認元は[公式資料](10-references.md)。
+状態: 初期実装。Cloudflareの制限値と本番挙動は[公式資料](10-references.md)を参照し、実環境での確認は未実施。
 
 ## 1. システム構成
 
@@ -8,10 +8,10 @@
 flowchart LR
     U["本人のPC / スマートフォン"] --> A["Cloudflare Access"]
     subgraph CF["Cloudflare / Free前提"]
-        A --> W["tayori-web Worker
-認証・API"]
+        A --> W["tayori-app Worker
+認証・Hono API"]
         W --> S["Static Assets
-React UI"]
+React + daisyUI"]
         W <--> D[("D1
 記事・購読・状態・ジョブ")]
         C["Cron / 5分"] --> H["collector scheduled
@@ -30,13 +30,13 @@ tick / fetch"]
 
 | リソース | 責務 |
 |---|---|
-| tayori-web Worker | API、認証確認、Static Assets経由のReact UI配信 |
+| tayori-app Worker | API、Access JWT確認、Static Assets経由のReact UI配信 |
 | tayori-collector Worker | scheduledはtick送信のみ。queueで配信対象選定・取得・整理 |
-| D1: tayori-db | 購読・記事・既読・保存・収集ジョブ・予算の単一正本 |
+| D1: tayori-db | 購読・記事・既読・保存・収集ジョブ・予算を集約するデータベース |
 | Queues: tayori-jobs | tick / fetchメッセージ。本文を入れない |
 | Cloudflare Access | 本人のメールアドレスだけを許可 |
 
-新規WebとAPIを同じオリジンにまとめる。初期はWorkers Static Assetsを採用し、Pagesへの分割はしない。GCP、VM、R2、KV、Durable Objects、AIは初期には不要。
+Web UI と API は同じオリジンで提供する。初期実装では Workers Static Assets を使い、Pages には配置しない。API はすべてのリクエストで Access JWT を検証する。workers.dev 上の静的アセット自体は Access で保護されない可能性があるため、公開前に Access で保護したカスタムホスト名を用意する。初期実装では GCP、VM、R2、KV、Durable Objects、AI を使わない。
 
 ## 2. Cronの役割を限定
 
@@ -47,7 +47,7 @@ Queues公式制限ページは保持期間を除きFree/Paid共通とし、consu
 ## 3. Queue設計
 
 - 1つのQueueを使い、`type: tick | fetch` と `schemaVersion: 1` で処理を分岐。
-- `tick`: 5分スロットをIDにする。期限切れジョブ回収、取得期限の購読先を最大10件選定、1時間ごとの小分け整理。
+- `tick`: 5分ごとに投入。期限切れジョブ回収、取得期限の購読先を最大10件選定、期限切れ記事の小分け整理。
 - `fetch`: `jobId, sourceId, generation` を持つ。1メッセージ1購読先。
 - 初期consumer batch sizeは1、concurrencyは1。アプリの取得タイムアウト20秒、全処理目標60秒以内。少数規模では並列度より整合性を優先。
 - 技術障害のQueue再試行は最大1回を設計案とする。429/5xxなど既知の取得失敗はD1に次回予定を記録してackする。
@@ -56,10 +56,10 @@ Queues公式制限ページは保持期間を除きFree/Paid共通とし、consu
 
 ## 4. D1とQueue間の整合性
 
-D1への書込とQueue送信を1つのトランザクションにはできないため、D1のfetch_jobsを送信待ち台帳として使う。
+D1 への書き込みと Queue への送信を1つのトランザクションにまとめられないため、D1 の `fetch_jobs` に送信待ちジョブを記録する。
 
 1. tick処理はD1の条件付き更新とbatchで購読先を確保し、ジョブ作成・日次予算予約を同時確定する。対象が取得済み/停止中なら作成しない。
-2. 台帳の未送信ジョブをQueueへ送る。送信成功後、sent状態を記録する。
+2. 未送信ジョブを Queue へ送る。送信に成功したら、状態を `sent` に更新する。
 3. 送信前の停止なら次tickで再送。送信成功後の記録失敗なら同じjobIdで重複送信され得る。
 4. consumerはD1でジョブを条件付きclaimし、leaseとgenerationを取得。完了・古いgenerationは処理しない。
 5. 記事書込と最終状態変更は有効なgenerationを条件に実施し、古いconsumerの更新を拒否。
@@ -69,7 +69,7 @@ D1 batchの原子性だけでは競合防止にならない。各更新の条件
 
 ## 5. RSS取得
 
-HTTP(S)の公開URLのみ。URLとリダイレクト先を検証し、認証付きURL・内部IP・localhost・メタデータ宛て通信・自サービス宛て循環を拒否。DNS再束縛を含む制約は実装時に確認する。公開のURL取得プロキシとしてAPIを提供しない。
+HTTP(S)の公開URLのみ。URLとリダイレクト先を検証し、認証付きURL・既知の内部IP・localhostを拒否する。DNS再束縛を含む制約は残るため、取得対象の検証は継続課題とする。公開のURL取得プロキシとしてAPIを提供しない。
 
 - ETag / Last-Modifiedを購読先ごとに保存し、条件付きGET。
 - 304では記事解析なし。200ではRSS/Atomを解析し、安定キーで重複排除。

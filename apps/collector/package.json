@@ -3,14 +3,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cf dev",
-    "build": "cf build",
-    "deploy": "cf deploy",
-    "typecheck": "cf workers types && tsc --noEmit"
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "deploy": ": \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the remote D1 database ID}\" && npm run build && cf deploy --prebuilt",
+    "typecheck": "cf workers types && tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@tayori/shared": "0.1.0",
+    "fast-xml-parser": "^5.11.2"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^2.0.0-beta.sha-ad79608dd",
     "@cloudflare/workers-types": "^5.20260929.1",
-    "cf": "1.0.0-beta.5",
-    "typescript": "^5.9.3"
+    "@types/node": "^24.19.0",
+    "cf": "^1.0.0-beta.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4",
+    "vitest": "^5.0.2"
   }
 }

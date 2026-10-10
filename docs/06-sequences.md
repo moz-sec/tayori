@@ -1,6 +1,6 @@
 # シーケンス図
 
-編集元は[diagrams](diagrams/README.md)。実装の成功経路だけでなく、重複配信と保存失敗も検証する。
+図の編集用原本は[diagrams](diagrams/README.md)にある。実装では、成功する場合に加えて、重複配信や保存失敗も検証する。
 
 ## 1. ログイン・記事表示
 
@@ -32,7 +32,7 @@ sequenceDiagram
     end
 ```
 
-初期UIは再読込・フォーカス復帰で状態を同期。レスポンスが古い場合の書戻しはversionで防止する。
+初期 UI は、再読み込み時と画面に戻ったときに状態を同期する。古いレスポンスによる上書きは `version` で防ぐ。
 
 ## 2. 定期収集
 
@@ -45,13 +45,13 @@ sequenceDiagram
     participant E as RSS配信元
     C->>Q: 5分ごとtick
     Q->>W: tick配信
-    W->>D: 期限・予算確認 / job作成 / 予約
+    W->>D: 期限と予算を確認 / jobを作成・予約
     D-->>W: 送信待ちjob
-    W->>Q: fetch(jobId, sourceId, generation)
+    W->>Q: fetch(jobId)
     W->>D: 送信済み記録
     W->>Q: tick ack
     Q->>W: fetch配信
-    W->>D: 条件付きclaimとlease取得
+    W->>D: 条件付きでclaimしleaseを取得
     alt 完了済み / 古い世代
         W->>Q: ackして終了
     else 実行権あり
@@ -62,8 +62,8 @@ sequenceDiagram
             W->>Q: ack
         else 200
             E-->>W: RSS / Atom
-            W->>W: 制限確認・解析・キー生成
-            W->>D: 冪等な記事保存（世代条件付き）
+            W->>W: 制限の確認・解析・キー生成
+            W->>D: 世代を確認して記事を冪等に保存
             D-->>W: 保存完了
             W->>D: validators・成功時刻・job完了
             W->>Q: ack
@@ -73,10 +73,10 @@ sequenceDiagram
         end
     end
     Note over W,D: DB障害等は限定再試行。完了前にvalidatorsを進めない
-    Note over Q,D: 未完了は台帳から回収。重複送信はjobIdで無害化
+    Note over Q,D: 未完了jobはD1の記録から回収。重複送信はjobIdで判別
 ```
 
-tickが遅延/重複してもD1の期限・ジョブ状態が正本。順序保証に依存しない。lease切れは新generationで回収し、古いworkerは書き込めない。
+tick が遅延または重複しても、期限とジョブの状態は D1 の値を基準に処理するため、メッセージの順序保証には依存しない。lease が切れたジョブは新しい generation で回収し、古い Worker からの書き込みを拒否する。
 
 ## 3. OPML移行
 
@@ -107,7 +107,7 @@ sequenceDiagram
     Note over B,D: 中断後の再実行でも二重登録しない
 ```
 
-ブラウザによる解析は操作のための前処理。サーバー側でURL・サイズ・フォルダ所属・重複を再検証する。RSSネットワーク取得をインポートAPI内で待たない。
+ブラウザでの解析は、インポート操作の前処理として行う。サーバー側でも URL、サイズ、フォルダの所属、重複を検証する。インポート API の処理中に RSS の取得完了を待たない。
 
 ## 4. 保存期限・記事再出現防止
 
@@ -117,7 +117,7 @@ sequenceDiagram
     participant W as Collector tick
     participant D as D1
     participant F as 次回RSS取得
-    T->>W: 1時間ごとの整理タイミング
+    T->>W: 5分ごとのtick
     W->>D: expires_at経過記事を小分け選定
     alt 保存指定あり
         W->>D: 保持
@@ -130,4 +130,4 @@ sequenceDiagram
     F->>F: 期限削除済みとして再作成しない
 ```
 
-保存操作と削除の競合はSQLの現在状態で決定。item_keysはバックアップ対象であり、復元時に失うと古い記事が再登録され得る。
+保存操作と削除が競合した場合は、SQL 実行時点の状態で結果を決める。`item_keys` はバックアップ対象であり、復元時に失うと古い記事が再登録される可能性がある。

@@ -3,7 +3,7 @@ sequenceDiagram
     participant W as Collector tick
     participant D as D1
     participant F as 次回RSS取得
-    T->>W: 1時間ごとの整理タイミング
+    T->>W: 5分ごとのtick
     W->>D: expires_at経過記事を小分け選定
     alt 保存指定あり
         W->>D: 保持

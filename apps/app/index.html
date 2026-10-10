@@ -3,18 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f7f5f0" />
+    <meta name="theme-color" content="#eef1ed" />
     <meta name="description" content="自分の読みたいサイトを整理して追いかける RSS リーダー" />
+    <link rel="icon" href="/favicon.ico" />
     <title>Tayori — たより</title>
   </head>
   <body>
-    <main id="app" class="shell">
-      <p class="eyebrow">PERSONAL READER</p>
-      <h1>Tayori <span>たより</span></h1>
-      <p class="intro">自分の読みたいサイトを、好きなだけ整理して追いかける。</p>
-      <p class="status">ただいま開発中です。</p>
-      <p class="detail">フィードの登録、フォルダ整理、既読管理をここから使えるようにしていきます。</p>
-    </main>
-    <script type="module" src="/src/client.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

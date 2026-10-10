@@ -1,10 +1,10 @@
 flowchart LR
     U["本人のPC / スマートフォン"] --> A["Cloudflare Access"]
     subgraph CF["Cloudflare / Free前提"]
-        A --> W["tayori-web Worker
+        A --> W["tayori-app Worker
 認証・API"]
         W --> S["Static Assets
-React UI"]
+React + daisyUI"]
         W <--> D[("D1
 記事・購読・状態・ジョブ")]
         C["Cron / 5分"] --> H["collector scheduled

@@ -1,4 +1,6 @@
+import process from "node:process";
 import { bindings, defineConfig, triggers } from "cf/config";
+import type { QueueMessage } from "@tayori/shared";
 
 import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 
@@ -8,8 +10,8 @@ export default defineConfig({
     compatibilityDate: "2026-09-29",
     entrypoint,
     env: {
-      DB: bindings.d1({ name: "tayori-db", id: "00000000-0000-0000-0000-000000000000" }),
-      JOBS: bindings.queue({ name: "tayori-jobs" }),
+      DB: bindings.d1({ name: "tayori-db", id: process.env.TAYORI_D1_DATABASE_ID ?? "00000000-0000-4000-8000-000000000001" }),
+      JOBS: bindings.queue<QueueMessage>({ name: "tayori-jobs" }),
     },
     triggers: [
       triggers.scheduled({ schedule: "*/5 * * * *" }),
@@ -20,5 +22,7 @@ export default defineConfig({
         maxRetries: 1,
       }),
     ],
+    workersDev: false,
+    previewUrls: false,
   },
 });

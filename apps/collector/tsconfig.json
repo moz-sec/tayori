@@ -7,8 +7,8 @@
     "skipLibCheck": true,
     "noEmit": true,
     "lib": ["ESNext"],
-    "types": ["@cloudflare/workers-types"],
+    "types": ["@cloudflare/workers-types", "node"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "cloudflare.config.ts"]
+  "include": ["src", "cloudflare.config.ts", ".cloudflare/types"]
 }

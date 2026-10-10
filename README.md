@@ -1,10 +1,10 @@
 # Tayori（たより）
 
-自分が読みたいサイトを、好きなだけ整理して追いかけるための、個人向け RSS リーダーです。Feedly の無料プランで特に気になっていたフォルダ数の制限をなくし、フィード、フォルダ、ボードを自分の使い方に合わせて管理できることを目指しています。
+読みたいサイトを自分の分類方法で整理できる、個人向けの RSS リーダーです。Feedly の無料プランで特に気になっていたフォルダ数の制限をなくし、フィード、フォルダ、ボードを自分の使い方に合わせて管理できるアプリを目指しています。
 
-> **開発初期です。** 画面や機能はまだ実装途中で、安定運用やデータ移行を保証するリリースではありません。
+> **初期実装です。** 基本の購読・収集・閲覧フローを実装しました。Cloudflareアカウントへのリソース作成・本番設定・実購読先での負荷確認はまだ行っていません。
 
-## 目指す機能
+## 初期実装の機能
 
 - RSS / Atom フィードの登録と定期取得
 - フォルダ数に上限のない購読整理
@@ -18,7 +18,7 @@
 
 | 領域         | 採用技術                                  | 役割                             |
 | ------------ | ----------------------------------------- | -------------------------------- |
-| Web UI / API | Vite、Hono、TypeScript                    | 単一オリジンの画面と軽量 API     |
+| Web UI / API | React、Vite、Tailwind CSS、daisyUI、Hono | 単一オリジンの画面と軽量 API     |
 | 収集処理     | Cloudflare Workers、Cron Triggers、Queues | フィード取得を小さなジョブに分割 |
 | データ       | Cloudflare D1                             | フィード、記事、既読・保存状態   |
 | 認証         | Cloudflare Access                         | 本人だけが利用できる入口         |
@@ -42,34 +42,56 @@ tayori/
 
 ## 開発を始める
 
-必要なものは Node.js 22.18 以降と npm です。Cloudflare CLI は各アプリの開発依存関係としてインストールし、Cloudflare アカウントへデプロイする場合にログインします。
+開発には Node.js 22.18 以降と npm が必要です。
 
 ```sh
 npm install
 npm run dev
 ```
 
-収集 Worker のローカル開発:
+収集 Worker のローカル開発は、次のコマンドで起動します。
 
 ```sh
 npm run dev:collector
 ```
 
-スクリプトや Cloudflare リソース設定が未整備の箇所があります。実装が進むまでは、利用できないスクリプトがあることに注意してください。D1 のスキーマと運用手順は [`docs/`](docs/) を参照してください。
+Cloudflare の設定は各 Worker の `cloudflare.config.ts` にまとめています。ローカル開発とビルドには Vite を、Cloudflare リソースの管理、D1 マイグレーション、デプロイには `cf` CLI を使います。Cloudflare で D1 を作成した後、発行された ID を環境変数 `TAYORI_D1_DATABASE_ID` に設定し、両 Worker に渡してください。D1 のスキーマと運用手順は [`docs/`](docs/) を参照してください。
+
+ローカル D1 は `npm run db:migrate:local` で初期化できます。Cloudflare の D1 ID は不要です。リモートへ適用するときは、D1 ID を設定して `npm run db:migrate:remote` を実行します。
+
+基本チェックには、次のコマンドを使います。
+
+```sh
+npm run typecheck
+npm test
+npm run build
+```
+
+## CI/CD
+
+PRでテスト・ビルド・Semgrepを実行し、`v0.1.0`のようなリリースタグのpushでCloudflare本番へデプロイします。mainへのpushでは起動しません。初回のEnvironment設定、Snyk連携、D1更新と復旧の注意点は[CI/CD設計](docs/11-ci-cd.md)を参照してください。
 
 ## Cloudflare へのデプロイ
 
-デプロイ前に D1 と `tayori-jobs` Queue を作成し、`cloudflare.config.ts` と D1 マイグレーション用 `wrangler.jsonc` のサンプル database ID を実際の ID に置き換え、Cloudflare Access を設定する必要があります。現時点でこのリポジトリに本番リソースや認証情報は含めていません。Cloudflare の課金を避けるには、ダッシュボードでプランと使用量を確認し、無料枠内で運用してください。無料枠や機能の提供条件は変更される場合があります。収集 Worker はまだ未実装のため、本番へデプロイしないでください。
+デプロイ前に Cloudflare アカウントへログインし、D1 `tayori-db` と Queue `tayori-jobs` を作成します。発行された D1 ID を環境変数 `TAYORI_D1_DATABASE_ID` に設定し、両 Worker のビルドとマイグレーションに使います。Cloudflare Access を構成し、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ALLOWED_EMAIL` を記載したシークレットファイルを用意します。
+
+```sh
+cf auth login
+cf d1 create --name tayori-db
+cf queues create --queue-name tayori-jobs
+TAYORI_D1_DATABASE_ID="YOUR_D1_DATABASE_ID" npm run db:migrate:remote
+TAYORI_SECRETS_FILE=/安全な場所/app-secrets.env npm run deploy
+```
+
+`cf deploy`のdry runは各Workerのディレクトリで`npm exec cf -- deploy --prebuilt --dry-run`を実行します。公開ホスト名とAccess適用を決めるまで本番デプロイはしないでください。収集WorkerはWorkers.devとPreview URLを無効にしています。
 
 ## セキュリティとプライバシー
 
-Tayori は個人用を想定しています。公開環境では Cloudflare Access で入口を保護し、Worker 側でも認証を確認する設計です。フィード取得機能は任意 URL を取得するため、公開 URL の検証、リダイレクト制限、応答サイズ制限などを実装してから利用可能にします。実装前の段階で機密情報や本番購読データを登録しないでください。
+Tayori は個人用を想定しています。API Worker は Cloudflare Access JWT を検証し、許可メールアドレス、issuer、audience が揃わない場合はリクエストを拒否します。これらのシークレットを設定していないローカルホストでは、開発用の認証方法を使います。フィード取得では URL、リダイレクト先、応答サイズ、取得時間を制限していますが、DNS 再束縛を完全には防げません。実際の購読先で検証するまでは、本番利用を控えてください。
 
 脆弱性の報告方法は [`SECURITY.md`](SECURITY.md) を参照してください。
 
-## 開発への参加
-
-開発手順と設計判断は [`docs/`](docs/) と [`CONTRIBUTING.md`](CONTRIBUTING.md) にあります。Issue や Pull Request は歓迎します。大きな仕様変更は、先に Issue で目的と影響を相談してください。
+開発手順と設計判断は [`docs/`](docs/) にあります。
 
 ## ライセンス
 

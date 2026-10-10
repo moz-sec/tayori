@@ -6,13 +6,13 @@ sequenceDiagram
     participant E as RSS配信元
     C->>Q: 5分ごとtick
     Q->>W: tick配信
-    W->>D: 期限・予算確認 / job作成 / 予約
+    W->>D: 期限と予算を確認 / jobを作成・予約
     D-->>W: 送信待ちjob
-    W->>Q: fetch(jobId, sourceId, generation)
+    W->>Q: fetch(jobId)
     W->>D: 送信済み記録
     W->>Q: tick ack
     Q->>W: fetch配信
-    W->>D: 条件付きclaimとlease取得
+    W->>D: 条件付きでclaimしleaseを取得
     alt 完了済み / 古い世代
         W->>Q: ackして終了
     else 実行権あり
@@ -23,8 +23,8 @@ sequenceDiagram
             W->>Q: ack
         else 200
             E-->>W: RSS / Atom
-            W->>W: 制限確認・解析・キー生成
-            W->>D: 冪等な記事保存（世代条件付き）
+            W->>W: 制限の確認・解析・キー生成
+            W->>D: 世代を確認して記事を冪等に保存
             D-->>W: 保存完了
             W->>D: validators・成功時刻・job完了
             W->>Q: ack
@@ -34,4 +34,4 @@ sequenceDiagram
         end
     end
     Note over W,D: DB障害等は限定再試行。完了前にvalidatorsを進めない
-    Note over Q,D: 未完了は台帳から回収。重複送信はjobIdで無害化
+    Note over Q,D: 未完了jobはD1の記録から回収。重複送信はjobIdで判別
