@@ -42,7 +42,8 @@ jobs:
       - run: npm install --no-save --ignore-scripts --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      - run: npm run build --workspace @tayori/app -- --mode preview
+      - run: npm run build --workspace @tayori/collector -- --mode preview
       - name: Migrate preview D1 and deploy preview Workers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
