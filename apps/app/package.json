@@ -5,11 +5,12 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "deploy": ": \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the remote D1 database ID}\" && npm run build && cf deploy --prebuilt --secrets-file \"${TAYORI_SECRETS_FILE:?Set TAYORI_SECRETS_FILE to the app secrets file path}\"",
+    "deploy": ": \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the remote D1 database ID}\" && : \"${ACCESS_TEAM_DOMAIN:?Set ACCESS_TEAM_DOMAIN}\" && : \"${ACCESS_AUD:?Set ACCESS_AUD}\" && : \"${ALLOWED_EMAIL:?Set ALLOWED_EMAIL}\" && secrets_file=$(mktemp) && trap 'rm -f \"$secrets_file\"' EXIT && printf 'ACCESS_TEAM_DOMAIN=%s\\nACCESS_AUD=%s\\nALLOWED_EMAIL=%s\\n' \"$ACCESS_TEAM_DOMAIN\" \"$ACCESS_AUD\" \"$ALLOWED_EMAIL\" > \"$secrets_file\" && npm run build && cf deploy --prebuilt --secrets-file \"$secrets_file\"",
     "typecheck": "cf workers types && tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
     "test": "vitest run --passWithNoTests --config vitest.config.ts",
     "db:migrate:local": "cf d1 migrations apply \"${TAYORI_D1_DATABASE_ID:-00000000-0000-4000-8000-000000000001}\" --dir ../../migrations --local --persist-to .cloudflare/state",
-    "db:migrate:remote": "cf d1 migrations apply \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the D1 database ID}\" --dir ../../migrations"
+    "db:migrate:remote": "cf d1 migrations apply \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the D1 database ID}\" --dir ../../migrations",
+    "db:migrate:preview": "cf d1 migrations apply \"${TAYORI_PREVIEW_D1_DATABASE_ID:?Set TAYORI_PREVIEW_D1_DATABASE_ID to the preview D1 database ID}\" --dir ../../migrations --mode preview"
   },
   "dependencies": {
     "@tayori/shared": "0.1.0",
