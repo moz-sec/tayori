@@ -1,0 +1,64 @@
+name: Preview
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy main preview
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    environment: preview
+    env:
+      CI: "true"
+      TAYORI_PREVIEW_D1_DATABASE_ID: ${{ vars.TAYORI_PREVIEW_D1_DATABASE_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Validate preview variables
+        run: |
+          [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]] || {
+            echo 'Set preview variable CLOUDFLARE_ACCOUNT_ID'; exit 1;
+          }
+          [[ "$TAYORI_PREVIEW_D1_DATABASE_ID" =~ ^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$ && "$TAYORI_PREVIEW_D1_DATABASE_ID" != '00000000-0000-0000-0000-000000000000' ]] || {
+            echo 'Set preview variable TAYORI_PREVIEW_D1_DATABASE_ID'; exit 1;
+          }
+      - run: npm ci
+      # npm's configured registry mirror omits Rolldown's Linux optional binding from package-lock.json.
+      - run: npm install --no-save --ignore-scripts --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Migrate preview D1 and deploy preview Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${CLOUDFLARE_API_TOKEN:?Missing preview API token}"
+          npm run db:migrate:preview
+          npm exec --workspace @tayori/app -- cf deploy --prebuilt --mode preview
+          npm exec --workspace @tayori/collector -- cf deploy --prebuilt --mode preview
+      - name: Record preview result
+        if: always()
+        env:
+          PREVIEW_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Result: $PREVIEW_STATUS"
+            echo 'Workers: tayori-app-preview, tayori-collector-preview'
+          } >> "$GITHUB_STEP_SUMMARY"

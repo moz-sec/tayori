@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a stable version on main
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo 'Expected a stable release tag such as v0.1.0'; exit 1;
+          }
+          git merge-base --is-ancestor HEAD origin/main
+
+  security:
+    needs: validate
+    uses: ./.github/workflows/security.yml
+
+  deploy:
+    name: Deploy production
+    needs: [validate, security]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    environment: production
+    env:
+      CI: "true"
+      TAYORI_D1_DATABASE_ID: ${{ vars.TAYORI_D1_DATABASE_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Validate production variables
+        run: |
+          [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]] || {
+            echo 'Set production variable CLOUDFLARE_ACCOUNT_ID'; exit 1;
+          }
+          [[ "$TAYORI_D1_DATABASE_ID" =~ ^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$ && "$TAYORI_D1_DATABASE_ID" != '00000000-0000-0000-0000-000000000000' ]] || {
+            echo 'Set production variable TAYORI_D1_DATABASE_ID'; exit 1;
+          }
+      - run: npm ci
+      # npm's configured registry mirror omits Rolldown's Linux optional binding from package-lock.json.
+      - run: npm install --no-save --ignore-scripts --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Migrate D1 and deploy verified build
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCESS_TEAM_DOMAIN: ${{ secrets.ACCESS_TEAM_DOMAIN }}
+          ACCESS_AUD: ${{ secrets.ACCESS_AUD }}
+          ALLOWED_EMAIL: ${{ secrets.ALLOWED_EMAIL }}
+        run: |
+          set -euo pipefail
+          : "${CLOUDFLARE_API_TOKEN:?Missing production API token}"
+          : "${ACCESS_TEAM_DOMAIN:?Missing Access team domain}"
+          : "${ACCESS_AUD:?Missing Access audience}"
+          : "${ALLOWED_EMAIL:?Missing allowed email}"
+          TAYORI_SECRETS_FILE="$RUNNER_TEMP/tayori-secrets.json"
+          export TAYORI_SECRETS_FILE
+          trap 'rm -f "$TAYORI_SECRETS_FILE"' EXIT
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const names = ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "ALLOWED_EMAIL"];
+            writeFileSync(process.env.TAYORI_SECRETS_FILE,
+              JSON.stringify(Object.fromEntries(names.map(key => [key, process.env[key]]))),
+              { mode: 0o600 });
+          '
+          npm run db:migrate:remote
+          npm exec --workspace @tayori/app -- cf deploy --prebuilt --secrets-file "$TAYORI_SECRETS_FILE" --tag "$RELEASE_TAG"
+          npm exec --workspace @tayori/collector -- cf deploy --prebuilt --tag "$RELEASE_TAG"
+      - name: Record release result
+        if: always()
+        env:
+          RELEASE_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "Release: $RELEASE_TAG"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Result: $RELEASE_STATUS"
+            echo 'Deployment order: D1 migrations → app → collector. See step logs for individual results.'
+          } >> "$GITHUB_STEP_SUMMARY"

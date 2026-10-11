@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      # npm's configured registry mirror omits Rolldown's Linux optional binding from package-lock.json.
+      - run: npm install --no-save --ignore-scripts --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
