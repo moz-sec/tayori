@@ -3,6 +3,8 @@ name: Preview
 on:
   push:
     branches: [main]
+    paths:
+      - "apps/app/**"
 
 permissions:
   contents: read
