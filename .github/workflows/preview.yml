@@ -43,6 +43,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build --workspace @tayori/collector -- --mode preview
+      # cf resolves its Vite delegate from the workspace package's node_modules,
+      # while npm hoists this dependency to the repository root.
+      - name: Make the Vite plugin discoverable to cf
+        run: |
+          mkdir -p apps/app/node_modules/@cloudflare
+          ln -s ../../../../node_modules/@cloudflare/vite-plugin apps/app/node_modules/@cloudflare/vite-plugin
       - name: Migrate preview D1 and deploy preview Workers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
