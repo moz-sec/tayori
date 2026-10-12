@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # npm dependency monitoring and fix PRs are owned by Snyk Open Source.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
