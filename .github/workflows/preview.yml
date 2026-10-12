@@ -56,8 +56,21 @@ jobs:
           set -euo pipefail
           : "${CLOUDFLARE_API_TOKEN:?Missing preview API token}"
           npm run db:migrate:preview
-          npm exec --workspace @tayori/app -- cf previews deploy main --mode preview
-          npm exec --workspace @tayori/collector -- cf deploy --prebuilt --mode preview
+      - name: Build app Preview
+        working-directory: apps/app
+        env:
+          CLOUDFLARE_PREVIEW_BUILD: "true"
+        run: npm exec -- cf build --mode preview
+      - name: Deploy app Preview
+        working-directory: apps/app
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm exec -- cf previews deploy main --prebuilt --mode preview
+      - name: Deploy collector Worker
+        working-directory: apps/collector
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm exec -- cf deploy --prebuilt --mode preview
       - name: Record preview result
         if: always()
         env:
