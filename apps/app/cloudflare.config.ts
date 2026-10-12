@@ -8,7 +8,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     worker: {
-      name: preview ? "tayori-app-preview" : "tayori-app",
+      // Native Workers Previews are deployments of this Worker, not a second
+      // Worker script. The mode selects Preview-safe bindings for cf previews.
+      name: "tayori-app",
       compatibilityDate: "2026-09-29",
       entrypoint,
       assets: {

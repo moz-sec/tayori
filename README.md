@@ -69,11 +69,11 @@ npm run build
 
 ## CI/CD
 
-PRでテスト・ビルド・Semgrepを実行し、`v0.1.0`のようなリリースタグのpushでCloudflare本番へデプロイします。mainへのpushでは起動しません。初回のEnvironment設定、Snyk連携、D1更新と復旧の注意点は[CI/CD設計](docs/11-ci-cd.md)を参照してください。
+PRでCI・セキュリティ検査を行い、mainへのpushでプレビュー、`v0.1.0`のようなリリースタグのpushで本番へデプロイします。GitHub ActionsとCloudflareの初回セットアップは[CI/CD設計](docs/11-ci-cd.md)を参照してください。
 
 ## Cloudflare へのデプロイ
 
-デプロイ前に Cloudflare アカウントへログインし、D1 `tayori-db` と Queue `tayori-jobs` を作成します。発行された D1 ID を環境変数 `TAYORI_D1_DATABASE_ID` に設定し、両 Worker のビルドとマイグレーションに使います。Cloudflare Access を構成し、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ALLOWED_EMAIL` を記載したシークレットファイルを用意します。
+CloudflareのリソースとGitHub Actionsを初回設定してから、GitHub Actions経由でデプロイします。ローカルからのデプロイは通常行いません。セットアップ手順は[CI/CD設計](docs/11-ci-cd.md)を参照してください。
 
 ```sh
 cf auth login
@@ -83,7 +83,7 @@ TAYORI_D1_DATABASE_ID="YOUR_D1_DATABASE_ID" npm run db:migrate:remote
 TAYORI_SECRETS_FILE=/安全な場所/app-secrets.env npm run deploy
 ```
 
-`cf deploy`のdry runは各Workerのディレクトリで`npm exec cf -- deploy --prebuilt --dry-run`を実行します。公開ホスト名とAccess適用を決めるまで本番デプロイはしないでください。収集WorkerはWorkers.devとPreview URLを無効にしています。
+`cf deploy`のdry runは各Workerのディレクトリで`npm exec cf -- deploy --prebuilt --dry-run`を実行します。公開ホスト名とAccess適用を決めるまで本番デプロイはしないでください。mainのappはCloudflare Workers Previewsで配備し、collectorはQueue consumerとCron Triggerを使うため専用のPreview Workerを使います。
 
 ## セキュリティとプライバシー
 

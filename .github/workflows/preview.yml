@@ -42,7 +42,6 @@ jobs:
       - run: npm install --no-save --ignore-scripts --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build --workspace @tayori/app -- --mode preview
       - run: npm run build --workspace @tayori/collector -- --mode preview
       - name: Migrate preview D1 and deploy preview Workers
         env:
@@ -51,7 +50,7 @@ jobs:
           set -euo pipefail
           : "${CLOUDFLARE_API_TOKEN:?Missing preview API token}"
           npm run db:migrate:preview
-          npm exec --workspace @tayori/app -- cf deploy --prebuilt --mode preview
+          npm exec --workspace @tayori/app -- cf previews deploy main --mode preview
           npm exec --workspace @tayori/collector -- cf deploy --prebuilt --mode preview
       - name: Record preview result
         if: always()
@@ -61,5 +60,5 @@ jobs:
           {
             echo "Commit: $(git rev-parse HEAD)"
             echo "Result: $PREVIEW_STATUS"
-            echo 'Workers: tayori-app-preview, tayori-collector-preview'
+            echo 'Workers: tayori-app Preview (main), tayori-collector-preview'
           } >> "$GITHUB_STEP_SUMMARY"
