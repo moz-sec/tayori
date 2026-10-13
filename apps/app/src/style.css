@@ -22,3 +22,4 @@ button, input, select { font: inherit; }
   font-size: 1.2rem;
   font-weight: 500;
 }
+.tayori-sidebar { box-shadow: 6px 0 18px rgb(0 0 0 / 0.08); }
