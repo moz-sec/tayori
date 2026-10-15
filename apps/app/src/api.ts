@@ -455,11 +455,18 @@ async function createSource(db: D1Database, input: unknown): Promise<SourceRow> 
     await db.prepare(
       "INSERT INTO sources(id, kind, normalized_url, folder_id, title, title_is_custom, site_url, status, interval_minutes, next_fetch_at) VALUES (?, 'rss', ?, ?, ?, ?, ?, 'active', 60, unixepoch())",
     ).bind(id, url, folderId, title, titleIsCustom, siteUrl).run();
-  } catch {
-    throw new ApiError(409, "SOURCE_ALREADY_EXISTS");
+  } catch (error) {
+    if (isNormalizedUrlConflict(error)) throw new ApiError(409, "SOURCE_ALREADY_EXISTS");
+    throw error;
   }
   const result = await db.prepare("SELECT * FROM sources WHERE id = ?").bind(id).first<SourceRow>();
   return result!;
+}
+
+function isNormalizedUrlConflict(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (/UNIQUE constraint failed:\s*sources\.normalized_url/i.test(error.message)) return true;
+  return isNormalizedUrlConflict(error.cause);
 }
 
 async function loadArticle(db: D1Database, id: string): Promise<ArticleRow | null> {
