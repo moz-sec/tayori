@@ -83,7 +83,14 @@ api.onError((error, c) => {
     return c.json({ error: { code: error.code } }, error.status);
   }
   const requestId = crypto.randomUUID();
-  console.error(JSON.stringify({ event: "api_error", requestId, name: error.name }));
+  console.error(JSON.stringify({
+    event: "api_error",
+    requestId,
+    method: c.req.method,
+    path: new URL(c.req.url).pathname,
+    name: error.name,
+    message: error.message,
+  }));
   return c.json({ error: { code: "INTERNAL_ERROR", requestId } }, 500);
 });
 

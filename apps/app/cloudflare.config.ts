@@ -13,6 +13,12 @@ export default defineConfig(({ isPreview, mode }) => {
       name: "tayori-app",
       compatibilityDate: "2026-09-29",
       entrypoint,
+      ...(preview ? {
+        observability: {
+          enabled: true,
+          logs: { enabled: true, headSamplingRate: 1 },
+        },
+      } : {}),
       assets: {
         notFoundHandling: "single-page-application",
         runWorkerFirst: ["/api/*"],
