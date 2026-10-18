@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "apps/app/**"
+      - "apps/collector/**"
+      - "packages/shared/**"
+      - "migrations/**"
 
 permissions:
   contents: read
