@@ -1,5 +1,5 @@
 export const DEFAULT_RETENTION_DAYS = 7;
-export const MAX_FEED_RESPONSE_BYTES = 2 * 1024 * 1024;
+export const MAX_FEED_RESPONSE_BYTES = 4 * 1024 * 1024;
 export const MAX_ARTICLES_PER_FEED = 200;
 export const MAX_QUEUE_OPERATIONS_PER_DAY = 8_000;
 
