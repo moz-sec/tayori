@@ -21,6 +21,7 @@ export default defineConfig(({ isPreview, mode }) => {
       } : {}),
       assets: {
         notFoundHandling: "single-page-application",
+        // The frontend is served publicly from assets; API requests run through the Worker.
         runWorkerFirst: ["/api/*"],
       },
       env: {

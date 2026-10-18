@@ -13,12 +13,15 @@
     "db:migrate:preview": "cf d1 migrations apply \"${TAYORI_PREVIEW_D1_DATABASE_ID:?Set TAYORI_PREVIEW_D1_DATABASE_ID to the preview D1 database ID}\" --dir ../../migrations --mode preview"
   },
   "dependencies": {
+    "@hono/swagger-ui": "^0.6.1",
+    "@hono/zod-openapi": "^1.6.3",
     "@tayori/shared": "0.1.0",
     "hono": "^4.13.11",
     "jose": "^6.2.12",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-icons": "^5.7.0"
+    "react-icons": "^5.7.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "2.0.0-beta.sha-91c870c02",

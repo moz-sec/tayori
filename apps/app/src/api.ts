@@ -1,6 +1,8 @@
-import { Hono } from "hono";
+import { OpenAPIHono } from "@hono/zod-openapi";
+import { swaggerUI } from "@hono/swagger-ui";
 import { DEFAULT_RETENTION_DAYS, normalizeFeedUrl } from "@tayori/shared";
 import { authenticate } from "./auth";
+import { registerApiOperations } from "./api-docs";
 
 type AppEnv = {
   Bindings: Env;
@@ -56,8 +58,9 @@ class ApiError extends Error {
   }
 }
 
-export const api = new Hono<AppEnv>().basePath("/api/v1");
+export const api = new OpenAPIHono<AppEnv>().basePath("/api/v1");
 
+// Every API route, including Swagger UI and the OpenAPI document, requires a valid Access JWT.
 api.use("*", async (c, next) => {
   c.header("Cache-Control", "private, no-store");
   const auth = await authenticate(c.req.raw, c.env);
@@ -446,6 +449,22 @@ api.get("/status", async (c) => {
   ]);
   return c.json({ data: { lastTickAt: tick ? new Date(Number(tick.value) * 1000).toISOString() : null, activeSources: active?.count ?? 0, failingSources: failures?.count ?? 0 } });
 });
+
+registerApiOperations(api.openAPIRegistry);
+
+api.doc("/openapi.json", {
+  openapi: "3.1.0",
+  info: {
+    title: "Tayori API",
+    version: "1.0.0",
+    description:
+      "Tayori の記事・購読先・フォルダ・ボードAPIです。" +
+      "全エンドポイントでCloudflare Access認証が必要です。JSON時刻はISO 8601 UTCです。",
+  },
+  servers: [{ url: "/api/v1" }],
+});
+
+api.get("/docs", swaggerUI({ url: "/api/v1/openapi.json" }));
 
 async function createSource(db: D1Database, input: unknown): Promise<SourceRow> {
   const body = asRecord(input);
