@@ -6,7 +6,7 @@ export const MAX_QUEUE_OPERATIONS_PER_DAY = 8_000;
 export type FeedFormat = "rss" | "atom" | "unknown";
 
 export type QueueMessage =
-  | { schemaVersion: 1; type: "tick"; scheduledAt: number }
+  | { schemaVersion: 1; type: "tick"; scheduledAt: number; cursor?: string }
   | { schemaVersion: 1; type: "fetch"; jobId: string };
 
 export interface FeedSummary {

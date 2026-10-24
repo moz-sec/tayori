@@ -8,8 +8,11 @@ import {
 import { FeedParseError, parseFeed, sha256, isSafeFeedTarget } from "./feed";
 
 const JOB_LEASE_SECONDS = 300;
+const HOUR_SECONDS = 3_600;
+const JOB_DELIVERY_SECONDS = HOUR_SECONDS;
 const TICK_RESERVATION = 4;
 const FETCH_RESERVATION = 4;
+// Recovery and new-job dispatch use separate pages to stay within 50 D1 queries.
 const FETCH_BATCH_LIMIT = 10;
 
 interface SourceRow {
@@ -49,7 +52,7 @@ export default {
         throw new Error("Invalid queue message");
       }
       if (value.type === "tick") {
-        await processTick(env, value.scheduledAt);
+        await processTick(env, value.scheduledAt, value.cursor);
       } else {
         await processFetch(env, value.jobId, message.attempts > 1);
       }
@@ -61,20 +64,28 @@ function isQueueMessage(value: unknown): value is QueueMessage {
   if (value === null || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
   return message.schemaVersion === 1 &&
-    ((message.type === "tick" && Number.isSafeInteger(message.scheduledAt)) ||
+    ((message.type === "tick" && Number.isSafeInteger(message.scheduledAt) && Number(message.scheduledAt) >= 0 &&
+      (message.cursor === undefined || (typeof message.cursor === "string" && message.cursor.length <= 100))) ||
       (message.type === "fetch" && typeof message.jobId === "string" && message.jobId.length <= 100));
 }
 
-async function processTick(env: Env, scheduledAtMs: number): Promise<void> {
+/** Dispatches one page of the hourly round and repairs unfinished jobs. */
+async function processTick(env: Env, scheduledAtMs: number, cursor?: string): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  if (!await reserveQueueOperations(env.DB, TICK_RESERVATION, now)) return;
+  const roundAt = Math.floor(scheduledAtMs / 1000 / HOUR_SECONDS) * HOUR_SECONDS;
+  // An expired round must not overwrite the schedule of a more recent one.
+  if (roundAt !== Math.floor(now / HOUR_SECONDS) * HOUR_SECONDS) return;
+  if (cursor === undefined && !await reserveQueueOperations(env.DB, TICK_RESERVATION, now)) return;
 
-  await env.DB.batch([
-    env.DB.prepare("UPDATE app_state SET value = ? WHERE key = 'last_tick'").bind(String(now)),
-    env.DB.prepare("INSERT INTO app_state(key, value) VALUES ('last_tick', ?) ON CONFLICT(key) DO NOTHING").bind(String(now)),
+  if (cursor === undefined) await env.DB.batch([
     env.DB.prepare(
-      "UPDATE fetch_jobs SET status = 'pending', lease_until = NULL WHERE status = 'running' AND lease_until <= ?",
-    ).bind(now),
+      "INSERT INTO app_state(key, value) VALUES ('last_tick', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).bind(String(now)),
+    env.DB.prepare(
+      `UPDATE fetch_jobs SET status = 'pending', lease_until = NULL
+       WHERE (status = 'running' AND lease_until <= ?)
+          OR (status = 'sent' AND COALESCE(lease_until, created_at + ?) <= ?)`,
+    ).bind(now, JOB_DELIVERY_SECONDS, now),
     env.DB.prepare(
       `DELETE FROM fetch_jobs WHERE id IN (
          SELECT id FROM fetch_jobs WHERE status IN ('done','failed') AND completed_at <= ?
@@ -82,6 +93,7 @@ async function processTick(env: Env, scheduledAtMs: number): Promise<void> {
        )`,
     ).bind(now - DEFAULT_RETENTION_DAYS * 86_400),
   ]);
+  if (cursor === undefined) await purgeExpiredArticles(env.DB, now);
 
   const pending = (await env.DB.prepare(
     "SELECT id, source_id, generation, status FROM fetch_jobs WHERE status = 'pending' ORDER BY created_at LIMIT ?",
@@ -89,21 +101,24 @@ async function processTick(env: Env, scheduledAtMs: number): Promise<void> {
   for (const job of pending) {
     if (!await reserveQueueOperations(env.DB, FETCH_RESERVATION, now)) return;
     await env.JOBS.send({ schemaVersion: 1, type: "fetch", jobId: job.id });
-    await env.DB.prepare("UPDATE fetch_jobs SET status = 'sent' WHERE id = ? AND status = 'pending'")
-      .bind(job.id).run();
+    await markJobSent(env.DB, job.id, now);
+  }
+  if (pending.length) {
+    await continueTick(env, roundAt, cursor ?? "", now);
+    return;
   }
 
   const due = (await env.DB.prepare(
     `SELECT id, normalized_url, title, interval_minutes, etag, last_modified, generation, status, consecutive_failures
-     FROM sources WHERE status = 'active' AND next_fetch_at <= ?
+     FROM sources WHERE status = 'active' AND next_fetch_at <= ? AND id > ?
        AND NOT EXISTS (SELECT 1 FROM fetch_jobs j WHERE j.source_id = sources.id AND j.status IN ('pending','sent','running'))
-     ORDER BY next_fetch_at, id LIMIT ?`,
-  ).bind(now, FETCH_BATCH_LIMIT).all<SourceRow>()).results ?? [];
+     ORDER BY id LIMIT ?`,
+  ).bind(roundAt, cursor ?? "", FETCH_BATCH_LIMIT).all<SourceRow>()).results ?? [];
 
   for (const source of due) {
     if (!await reserveQueueOperations(env.DB, FETCH_RESERVATION, now)) return;
     const jobId = crypto.randomUUID();
-    const nextFetchAt = now + Math.max(5, source.interval_minutes) * 60;
+    const nextFetchAt = roundAt + HOUR_SECONDS;
     const results = await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO fetch_jobs(id, source_id, generation, status, created_at)
@@ -111,19 +126,35 @@ async function processTick(env: Env, scheduledAtMs: number): Promise<void> {
          WHERE id = ? AND status = 'active' AND generation = ? AND next_fetch_at <= ?
            AND NOT EXISTS (SELECT 1 FROM fetch_jobs j WHERE j.source_id = sources.id AND j.status IN ('pending','sent','running'))
          ON CONFLICT(id) DO NOTHING`,
-      ).bind(jobId, now, source.id, source.generation, now),
+      ).bind(jobId, now, source.id, source.generation, roundAt),
       env.DB.prepare(
         `UPDATE sources SET next_fetch_at = ? WHERE id = ? AND status = 'active' AND generation = ?
          AND next_fetch_at <= ? AND EXISTS (SELECT 1 FROM fetch_jobs WHERE id = ? AND status = 'pending')`,
-      ).bind(nextFetchAt, source.id, source.generation, now, jobId),
+      ).bind(nextFetchAt, source.id, source.generation, roundAt, jobId),
     ]);
     if (!results[0]?.meta.changes) continue;
     await env.JOBS.send({ schemaVersion: 1, type: "fetch", jobId });
-    await env.DB.prepare("UPDATE fetch_jobs SET status = 'sent' WHERE id = ? AND status = 'pending'")
-      .bind(jobId).run();
+    await markJobSent(env.DB, jobId, now);
   }
 
-  await purgeExpiredArticles(env.DB, now);
+  if (due.length === FETCH_BATCH_LIMIT) await continueTick(env, roundAt, due.at(-1)!.id, now);
+}
+
+/** Reserves the delivery budget before sending the next page of this round. */
+async function continueTick(env: Env, roundAt: number, cursor: string, now: number): Promise<void> {
+  if (!await reserveQueueOperations(env.DB, TICK_RESERVATION, now)) return;
+  await env.JOBS.send({ schemaVersion: 1, type: "tick", scheduledAt: roundAt * 1000, cursor });
+}
+
+/** Records a delivery deadline so lost Queue messages can be sent again. */
+async function markJobSent(db: D1Database, jobId: string, now: number): Promise<void> {
+  await db.prepare("UPDATE fetch_jobs SET status = 'sent', lease_until = ? WHERE id = ? AND status = 'pending'")
+    .bind(now + JOB_DELIVERY_SECONDS, jobId).run();
+}
+
+/** Aligns successful polling to the next hourly Cron boundary. */
+function nextHourlyFetch(now: number): number {
+  return (Math.floor(now / HOUR_SECONDS) + 1) * HOUR_SECONDS;
 }
 
 async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean): Promise<void> {
@@ -151,7 +182,7 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
           `UPDATE sources SET last_checked_at = ?, last_success_at = ?, next_fetch_at = ?,
              consecutive_failures = 0, last_error_code = NULL, last_error_at = NULL
            WHERE id = ? AND generation = ?`,
-        ).bind(now, now, now + source.interval_minutes * 60, source.id, job.generation),
+        ).bind(now, now, nextHourlyFetch(now), source.id, job.generation),
         env.DB.prepare("UPDATE fetch_jobs SET status = 'done', lease_until = NULL, completed_at = ? WHERE id = ?")
           .bind(now, job.id),
       ]);
@@ -179,7 +210,7 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
            last_error_code = NULL, last_error_at = NULL
          WHERE id = ? AND generation = ?`,
       ).bind(parsed.title ?? "", parsed.title ?? "", siteUrl, newEtag, newLastModified, now, now,
-        now + source.interval_minutes * 60, source.id, job.generation),
+        nextHourlyFetch(now), source.id, job.generation),
       env.DB.prepare("UPDATE fetch_jobs SET status = 'done', lease_until = NULL, completed_at = ? WHERE id = ?")
         .bind(now, job.id),
     ]);
@@ -226,7 +257,7 @@ async function fetchWithRedirects(source: SourceRow): Promise<Response> {
       redirect: "manual",
       signal: AbortSignal.timeout(15_000),
     });
-    if (response.status < 300 || response.status > 399) return response;
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
     const location = response.headers.get("location");
     if (!location || redirects === 3) throw new FeedFetchError("redirect_limit");
     await response.body?.cancel();
@@ -259,6 +290,7 @@ async function readLimitedText(response: Response): Promise<string> {
   return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
 }
 
+/** Inserts new entries and updates changed content while preserving reading state and retention. */
 async function storeArticles(
   db: D1Database,
   source: SourceRow,
@@ -266,40 +298,60 @@ async function storeArticles(
   now: number,
   generation: number,
 ): Promise<void> {
-  const statements: D1PreparedStatement[] = [];
+  const incoming = new Map<string, Awaited<ReturnType<typeof parseFeed>>["articles"][number]>();
   for (const article of articles) {
     const keyHash = await sha256(`${source.id}\0${article.keyKind}\0${article.keyValue}`);
-    const firstSeenAt = now;
-    const articleId = keyHash;
-    statements.push(
-      db.prepare(
-        `INSERT INTO item_keys(id, source_id, key_hash, first_seen_at)
-         SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM sources WHERE id = ? AND generation = ?)
-         ON CONFLICT(source_id, key_hash) DO NOTHING`,
-      ).bind(articleId, source.id, keyHash, firstSeenAt, source.id, generation),
-      db.prepare(
-        `UPDATE articles SET title = ?, url = ?, author = ?, summary_text = ?, published_at = ?,
-           content_hash = ?, updated_at = ?
-         WHERE id = (SELECT id FROM item_keys WHERE source_id = ? AND key_hash = ?)
-           AND content_hash IS NOT ? AND EXISTS (SELECT 1 FROM sources WHERE id = ? AND generation = ?)`,
-      ).bind(article.title, article.url, article.author, article.summary, article.publishedAt,
-        article.contentHash, now, source.id, keyHash, article.contentHash, source.id, generation),
-      db.prepare(
-        `INSERT INTO articles(id, title, url, author, summary_text, published_at, content_hash,
-           first_seen_at, expires_at, updated_at)
-         SELECT k.id, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM item_keys k
-         WHERE k.source_id = ? AND k.key_hash = ? AND k.first_seen_at = ?
-           AND NOT EXISTS (SELECT 1 FROM articles a WHERE a.id = k.id)
-         ON CONFLICT(id) DO NOTHING`,
-      ).bind(article.title, article.url, article.author, article.summary, article.publishedAt,
-        article.contentHash, firstSeenAt, firstSeenAt + DEFAULT_RETENTION_DAYS * 86_400,
-        now, source.id, keyHash, firstSeenAt),
-    );
-    if (statements.length >= 48) {
-      await db.batch(statements.splice(0));
+    if (!incoming.has(keyHash)) incoming.set(keyHash, article);
+  }
+  const hashes = [...incoming.keys()];
+  for (let offset = 0; offset < hashes.length; offset += 80) {
+    const chunk = hashes.slice(offset, offset + 80);
+    const known = (await db.prepare(
+      `SELECT k.key_hash, a.id AS article_id, a.content_hash
+       FROM item_keys k LEFT JOIN articles a ON a.id = k.id
+       WHERE k.source_id = ? AND k.key_hash IN (${chunk.map(() => "?").join(",")})`,
+    ).bind(source.id, ...chunk).all<{ key_hash: string; article_id: string | null; content_hash: string | null }>()).results;
+    for (const row of known) {
+      // Keep expired keys as tombstones, even when the feed's content has changed.
+      if (row.article_id === null || row.content_hash === incoming.get(row.key_hash)?.contentHash) {
+        incoming.delete(row.key_hash);
+      }
     }
   }
-  if (statements.length) await db.batch(statements);
+
+  // Ten entries use <=76 binds per statement and <=47 D1 queries for a 200-entry feed.
+  const changed = [...incoming.entries()];
+  for (let offset = 0; offset < changed.length; offset += 10) {
+    const chunk = changed.slice(offset, offset + 10);
+    await db.batch([
+      db.prepare(
+        `WITH incoming(id) AS (VALUES ${chunk.map(() => "(?)").join(",")})
+         INSERT INTO item_keys(id, source_id, key_hash, first_seen_at)
+         SELECT id, ?, id, ? FROM incoming
+         WHERE EXISTS (SELECT 1 FROM sources WHERE id = ? AND generation = ? AND status = 'active')
+         ON CONFLICT(source_id, key_hash) DO NOTHING`,
+      ).bind(...chunk.map(([hash]) => hash), source.id, now, source.id, generation),
+      db.prepare(
+        `WITH incoming(id, title, url, author, summary_text, published_at, content_hash)
+           AS (VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(",")})
+         INSERT INTO articles(id, title, url, author, summary_text, published_at, content_hash,
+           first_seen_at, expires_at, updated_at)
+         SELECT i.id, i.title, i.url, i.author, i.summary_text, i.published_at, i.content_hash,
+           k.first_seen_at, k.first_seen_at + ?, ?
+         FROM incoming i JOIN item_keys k ON k.id = i.id
+         WHERE k.source_id = ? AND (k.first_seen_at = ? OR EXISTS (SELECT 1 FROM articles a WHERE a.id = i.id))
+           AND EXISTS (SELECT 1 FROM sources WHERE id = ? AND generation = ? AND status = 'active')
+         ON CONFLICT(id) DO UPDATE SET
+           title = excluded.title, url = excluded.url, author = excluded.author,
+           summary_text = excluded.summary_text, published_at = excluded.published_at,
+           content_hash = excluded.content_hash, updated_at = excluded.updated_at,
+           version = articles.version + 1
+         WHERE articles.content_hash IS NOT excluded.content_hash`,
+      ).bind(...chunk.flatMap(([hash, article]) => [hash, article.title, article.url, article.author,
+        article.summary, article.publishedAt, article.contentHash]),
+        DEFAULT_RETENTION_DAYS * 86_400, now, source.id, now, source.id, generation),
+    ]);
+  }
 }
 
 async function reserveQueueOperations(db: D1Database, count: number, now: number): Promise<boolean> {

@@ -56,3 +56,17 @@ describe("source API database errors", () => {
     await expect(response.json()).resolves.toMatchObject({ error: { code: "INTERNAL_ERROR" } });
   });
 });
+
+describe("article reads", () => {
+  it("returns stored articles without contacting external feeds", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Feed server unavailable"));
+    try {
+      const response = await api.request("http://localhost/api/v1/articles", {}, { DB: mockDatabase() } as Env);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ data: [], nextCursor: null });
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      fetcher.mockRestore();
+    }
+  });
+});

@@ -13,6 +13,11 @@ export default defineConfig(({ mode }) => {
       name: preview ? "tayori-collector-preview" : "tayori-collector",
       compatibilityDate: "2026-09-29",
       entrypoint,
+      observability: {
+        enabled: true,
+        logs: { enabled: true, headSamplingRate: 1 },
+        traces: { enabled: true, headSamplingRate: 1 },
+      },
       env: {
         DB: bindings.d1({
           name: preview ? "tayori-preview-db" : "tayori-db",
@@ -22,7 +27,7 @@ export default defineConfig(({ mode }) => {
         JOBS: bindings.queue<QueueMessage>({ name: queueName }),
       },
       triggers: [
-        triggers.scheduled({ schedule: "*/5 * * * *" }),
+        triggers.scheduled({ schedule: "0 * * * *" }),
         triggers.queue({
           name: queueName,
           maxBatchSize: 1,
