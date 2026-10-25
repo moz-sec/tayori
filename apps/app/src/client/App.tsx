@@ -97,7 +97,7 @@ export function App() {
       await request("/sources", { method: "POST", body: JSON.stringify({
         url: values.get("url"), title: values.get("title") || undefined, folderId: values.get("folderId") || null,
       }) });
-      form.reset(); tell("購読先を登録しました。次の収集サイクルで記事を取得します。"); await reload();
+      form.reset(); tell("購読先を登録しました。記事はバックグラウンドで取得されます。"); await reload();
     } catch (error) { tell(humanError(error), true); }
   };
 

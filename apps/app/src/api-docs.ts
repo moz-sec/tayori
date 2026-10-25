@@ -285,20 +285,6 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     },
   });
   addOperation({
-    method: "post",
-    path: "/sources/{id}/refresh",
-    summary: "購読先を再取得キューに追加",
-    description: "同期取得は行わず、次回の定期処理で取得されるようにします。",
-    request: { params: idParams, body: emptyBody },
-    responses: {
-      202: jsonResponse(
-        dataResponse(z.object({ queued: z.literal(true) })),
-        "取得キューに追加しました。",
-      ),
-      404: jsonResponse(ErrorResponseSchema, "購読先が見つかりません。"),
-    },
-  });
-  addOperation({
     method: "get",
     path: "/subscriptions.opml",
     summary: "購読先をOPMLで出力",
