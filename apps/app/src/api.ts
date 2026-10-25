@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
-import { DEFAULT_RETENTION_DAYS, normalizeFeedUrl } from "@tayori/shared";
+import { DEFAULT_RETENTION_DAYS, MAX_QUEUE_OPERATIONS_PER_DAY, normalizeFeedUrl } from "@tayori/shared";
+import type { QueueMessage } from "@tayori/shared";
 import { authenticate } from "./auth";
 import { registerApiOperations } from "./api-docs";
 
@@ -8,6 +9,8 @@ type AppEnv = {
   Bindings: Env;
   Variables: { principal: string };
 };
+
+const FETCH_QUEUE_OPERATION_RESERVATION = 4;
 
 type FolderRow = {
   id: string;
@@ -28,6 +31,7 @@ type SourceRow = {
   status: "active" | "paused" | "archived";
   interval_minutes: number;
   next_fetch_at: number;
+  generation: number;
   last_checked_at: number | null;
   last_success_at: number | null;
   last_error_code: string | null;
@@ -191,6 +195,7 @@ api.get("/sources", async (c) => {
 api.post("/sources", async (c) => {
   const body = await readJson(c.req.raw);
   const created = await createSource(c.env.DB, body);
+  await enqueueInitialFetch(c.env.DB, c.env.JOBS, created.id, created.generation);
   return c.json({ data: sourceDto(created) }, 201);
 });
 
@@ -203,6 +208,7 @@ api.post("/sources/import", async (c) => {
   for (const input of body.sources) {
     try {
       const created = await createSource(c.env.DB, input);
+      await enqueueInitialFetch(c.env.DB, c.env.JOBS, created.id, created.generation);
       results.push({ status: "added", source: sourceDto(created) });
     } catch (error) {
       if (error instanceof ApiError && error.code === "SOURCE_ALREADY_EXISTS") {
@@ -246,14 +252,6 @@ api.delete("/sources/:id", async (c) => {
     if (!exists) throw new ApiError(404, "SOURCE_NOT_FOUND");
   }
   return c.body(null, 204);
-});
-
-api.post("/sources/:id/refresh", async (c) => {
-  const result = await c.env.DB.prepare(
-    "UPDATE sources SET status = 'active', next_fetch_at = unixepoch(), generation = generation + 1 WHERE id = ? AND status != 'archived'",
-  ).bind(c.req.param("id")).run();
-  if (!result.meta.changes) throw new ApiError(404, "SOURCE_NOT_FOUND");
-  return c.json({ data: { queued: true } }, 202);
 });
 
 api.get("/subscriptions.opml", async (c) => {
@@ -487,6 +485,54 @@ async function createSource(db: D1Database, input: unknown): Promise<SourceRow> 
   }
   const result = await db.prepare("SELECT * FROM sources WHERE id = ?").bind(id).first<SourceRow>();
   return result!;
+}
+
+/** Persists an initial fetch job before sending it so the hourly tick can recover a failed send. */
+async function enqueueInitialFetch(
+  db: D1Database,
+  jobs: Queue<QueueMessage>,
+  sourceId: string,
+  generation: number,
+): Promise<void> {
+  const now = unixNow();
+  const jobId = crypto.randomUUID();
+  try {
+    const inserted = await db.prepare(
+      `INSERT INTO fetch_jobs(id, source_id, generation, status, created_at)
+       SELECT ?, id, generation, 'pending', ? FROM sources
+       WHERE id = ? AND status = 'active' AND generation = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM fetch_jobs j WHERE j.source_id = sources.id
+             AND j.status IN ('pending', 'sent', 'running')
+         )
+       ON CONFLICT DO NOTHING`,
+    ).bind(jobId, now, sourceId, generation).run();
+    if (!inserted.meta.changes || !await reserveQueueOperation(db, now)) return;
+
+    await jobs.send({ schemaVersion: 1, type: "fetch", jobId });
+    await db.prepare("UPDATE fetch_jobs SET status = 'sent', lease_until = ? WHERE id = ? AND status = 'pending'")
+      .bind(now + 3_600, jobId).run();
+  } catch (error) {
+    // The source remains due for the hourly Collector tick even if initial queueing fails.
+    console.error(JSON.stringify({
+      event: "initial_feed_fetch_enqueue_failed",
+      sourceId,
+      name: error instanceof Error ? error.name : "Error",
+      message: error instanceof Error ? error.message : "Unknown error",
+    }));
+  }
+}
+
+/** Reserves the shared daily Queue-operation budget before an initial job is sent. */
+async function reserveQueueOperation(db: D1Database, now: number): Promise<boolean> {
+  const day = new Date(now * 1000).toISOString().slice(0, 10);
+  const row = await db.prepare(
+    `INSERT INTO daily_usage(day_utc, reserved_queue_ops) VALUES (?, ?)
+     ON CONFLICT(day_utc) DO UPDATE SET reserved_queue_ops = daily_usage.reserved_queue_ops + excluded.reserved_queue_ops
+     WHERE daily_usage.reserved_queue_ops + excluded.reserved_queue_ops <= ?
+     RETURNING day_utc`,
+  ).bind(day, FETCH_QUEUE_OPERATION_RESERVATION, MAX_QUEUE_OPERATIONS_PER_DAY).first<{ day_utc: string }>();
+  return row !== null;
 }
 
 function isNormalizedUrlConflict(error: unknown): boolean {
