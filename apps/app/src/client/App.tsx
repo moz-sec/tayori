@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { LuPanelLeftClose, LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
 import { ArticleList } from "./components/ArticleList";
 import { Sidebar } from "./components/Sidebar";
@@ -6,6 +6,7 @@ import { request } from "./lib/api-client";
 import { ensureFolderPaths, parseOpmlFile } from "./lib/opml";
 import { humanError } from "./lib/errors";
 import { formatDate } from "./lib/format";
+import { markArticlesRead, type MarkReadResult } from "./lib/mark-read";
 import type { Article, Folder, FolderDialog, ImportOutline, Page, Scope, Source } from "./types";
 
 /** Owns application state and API actions, then composes the main interface. */
@@ -26,9 +27,18 @@ export function App() {
   const [importItems, setImportItems] = useState<ImportOutline[] | null>(null);
   const [importSummary, setImportSummary] = useState("");
   const [busy, setBusy] = useState(false);
+  const [markingRead, setMarkingRead] = useState(false);
+  const markingReadRef = useRef(false);
+  const [markReadResult, setMarkReadResult] = useState<MarkReadResult | null>(null);
+  const reloadVersion = useRef(0);
+  const currentView = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
+  const currentViewRef = useRef(currentView);
+  currentViewRef.current = currentView;
 
   /** Reloads folders, feeds, account settings, status, and articles in parallel. */
   const reload = useCallback(async (append = false) => {
+    const version = ++reloadVersion.current;
+    const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
     try {
       const query = new URLSearchParams({ scope, limit: "50" });
       if (folderId) query.set("folderId", folderId);
@@ -41,6 +51,7 @@ export function App() {
         request<Page<{ activeSources: number; failingSources: number; lastTickAt: string | null }>>("/status"),
         request<Page<Article[]>>(`/articles?${query}`),
       ]);
+      if (version !== reloadVersion.current || view !== currentViewRef.current) return;
       setFolders(folderResult.data);
       setSources(sourceResult.data);
       setRetentionDays(me.data.retentionDays);
@@ -50,6 +61,7 @@ export function App() {
       setNotice("");
       setNoticeError(false);
     } catch (error) {
+      if (version !== reloadVersion.current || view !== currentViewRef.current) return;
       setNotice(humanError(error));
       setNoticeError(true);
     }
@@ -154,13 +166,26 @@ export function App() {
     finally { setBusy(false); }
   };
 
-  /** Marks the first 50 currently displayed articles as read. */
-  const markVisibleRead = async () => {
-    if (!articles.length) return;
+  const latestReload = useRef(reload);
+  latestReload.current = reload;
+
+  /** Uses a fixed snapshot, retaining unconfirmed IDs independently of pagination. */
+  const markVisibleRead = async (retry = false) => {
+    if (markingReadRef.current) return;
+    const ids = retry ? markReadResult?.remainingIds ?? [] : articles.map((article) => article.id);
+    if (!ids.length) return;
+    markingReadRef.current = true;
+    setMarkingRead(true);
+    const previousCompleted = retry ? markReadResult?.completed ?? 0 : 0;
+    const previousUpdated = retry ? markReadResult?.updated ?? 0 : 0;
     try {
-      await request("/articles/read", { method: "POST", body: JSON.stringify({ articleIds: articles.slice(0, 50).map((article) => article.id), read: true }) });
-      tell("表示中の記事を既読にしました"); await reload();
-    } catch (error) { tell(humanError(error), true); }
+      const result = await markArticlesRead(ids);
+      setMarkReadResult({ ...result, completed: previousCompleted + result.completed, updated: previousUpdated + result.updated });
+      await latestReload.current();
+    } finally {
+      markingReadRef.current = false;
+      setMarkingRead(false);
+    }
   };
 
   const heading = sourceId ? sources.find((item) => item.id === sourceId)?.title
@@ -181,11 +206,17 @@ export function App() {
             </div>
             <div className="flex items-center gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
-              <button className="btn btn-outline btn-sm" onClick={() => void markVisibleRead()} disabled={!articles.length}>表示分を既読</button>
+              <button className="btn btn-outline btn-sm" onClick={() => void markVisibleRead()} disabled={!articles.length || markingRead || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : "表示分を既読"}</button>
             </div>
           </div>
 
           {notice && <div role="status" className={`alert mb-5 ${noticeError ? "alert-error" : "alert-info"}`}><span>{notice}</span></div>}
+          {markReadResult && <div role="status" className={`alert mb-5 ${markReadResult.remainingIds.length ? "alert-error" : "alert-info"}`}>
+            <span>{markReadResult.updated}件を既読にしました。{markReadResult.completed > markReadResult.updated && `削除済みなどの${markReadResult.completed - markReadResult.updated}件は更新対象外でした。`}{markReadResult.remainingIds.length > 0 && `操作開始時の記事のうち、残り${markReadResult.remainingIds.length}件は処理を確認できていません。${humanError(markReadResult.error)}`}</span>
+            {markReadResult.remainingIds.length > 0
+              ? <button className="btn btn-sm" disabled={markingRead} onClick={() => void markVisibleRead(true)}>残り{markReadResult.remainingIds.length}件を再試行</button>
+              : <button className="btn btn-ghost btn-sm" onClick={() => setMarkReadResult(null)}>閉じる</button>}
+          </div>}
 
           <ArticleList articles={articles} nextCursor={nextCursor} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
         </main>
