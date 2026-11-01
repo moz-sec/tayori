@@ -1,6 +1,8 @@
-import type { FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { FolderDeleteControl } from "./FolderDeleteControl";
 import type { ImportRow } from "../lib/opml-import";
-import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss } from "react-icons/lu";
+import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss, LuChevronDown, LuChevronRight, LuArrowUp, LuArrowDown } from "react-icons/lu";
+import { flattenFolders, readCollapsedFolders, saveCollapsedFolders } from "../lib/folder-tree";
 import { formatDate } from "../lib/format";
 import { feedErrorMessage } from "../lib/feed-status";
 import type { Folder, FolderDialog, ImportOutline, Scope, Source } from "../types";
@@ -14,6 +16,7 @@ interface SidebarProps {
   status: { activeSources: number; failingSources: number; lastTickAt: string | null } | null;
   retentionDays: number;
   folderDialog: FolderDialog | null;
+  folderBusy: boolean;
   importItems: ImportOutline[] | null;
   importSummary: string;
   importRows: ImportRow[];
@@ -21,11 +24,14 @@ interface SidebarProps {
   onScopeChange: (scope: Scope) => void;
   onSelectFolder: (id: string) => void;
   onSelectSource: (id: string) => void;
+  onMoveFolder: (id: string, direction: "up" | "down") => Promise<void>;
   onOpenFolderDialog: (dialog: FolderDialog) => void;
   onCloseFolderDialog: () => void;
   onSaveFolder: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteFolder: (folder: Folder) => Promise<void>;
   onCreateSource: (event: FormEvent<HTMLFormElement>) => void;
   onToggleSource: (source: Source) => void;
+  onOpenSourceDialog: (source: Source) => void;
   onImportFile: (file: File | undefined) => void;
   onImportOpml: () => void;
 }
@@ -35,9 +41,26 @@ export function Sidebar(props: SidebarProps) {
   const {
     scope, folderId, sourceId, folders, sources, status, retentionDays, folderDialog, importItems,
     importSummary, importRows, busy, onScopeChange, onSelectFolder, onSelectSource, onOpenFolderDialog,
-    onCloseFolderDialog, onSaveFolder, onCreateSource, onToggleSource, onImportFile, onImportOpml,
+    onMoveFolder, onCloseFolderDialog, onSaveFolder, onDeleteFolder, folderBusy, onCreateSource, onToggleSource, onOpenSourceDialog, onImportFile, onImportOpml,
   } = props;
+  const [collapsedFolders, setCollapsedFolders] = useState(readCollapsedFolders);
+  const movingFolderRef = useRef(false);
+  const [movingFolder, setMovingFolder] = useState<string | null>(null);
+  useEffect(() => { saveCollapsedFolders(collapsedFolders); }, [collapsedFolders]);
   const flatFolders = flattenFolders(folders);
+  const visibleFolders = flattenFolders(folders, collapsedFolders);
+  const toggleFolder = (id: string) => setCollapsedFolders((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const moveFolder = async (id: string, direction: "up" | "down") => {
+    if (movingFolderRef.current || folderBusy) return;
+    movingFolderRef.current = true;
+    setMovingFolder(id);
+    try { await onMoveFolder(id, direction); }
+    finally { movingFolderRef.current = false; setMovingFolder(null); }
+  };
 
   return <>
     <div className="drawer-side z-30">
@@ -57,23 +80,27 @@ export function Sidebar(props: SidebarProps) {
             <button className="btn btn-ghost btn-xs" aria-label="New folder" title="New folder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: null })}><LuPlus /></button>
           </div>
           <ul className="menu menu-sm max-h-52 w-full flex-nowrap overflow-y-auto p-0">
-            {flatFolders.map((folder) => <li key={folder.id} className="w-full">
+            {visibleFolders.map((folder) => <li key={folder.id} className="w-full">
               <div className="flex w-full min-w-0 flex-nowrap items-center gap-0.5">
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-expanded={!collapsedFolders.has(folder.id)} aria-label={`${folder.name}を${collapsedFolders.has(folder.id) ? "展開" : "折りたたむ"}`} onClick={() => toggleFolder(folder.id)}>{collapsedFolders.has(folder.id) ? <LuChevronRight /> : <LuChevronDown />}</button>
                 <button className={(folderId === folder.id ? "active " : "") + "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"} style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }} onClick={() => onSelectFolder(folder.id)}>
                   <LuFolder className="shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>{folder.unreadCount > 0 && <span className="badge badge-sm shrink-0">{folder.unreadCount}</span>}
                 </button>
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を上へ移動`} title="同じ親の中で上へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId)[0]?.id === folder.id} onClick={() => void moveFolder(folder.id, "up")}><LuArrowUp /></button>
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を下へ移動`} title="同じ親の中で下へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id === folder.id} onClick={() => void moveFolder(folder.id, "down")}><LuArrowDown /></button>
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Add subfolder to ${folder.name}`} title="Add subfolder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus /></button>
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Settings for ${folder.name}`} title="Folder settings" onClick={() => onOpenFolderDialog({ mode: "edit", folder })}><LuSettings /></button>
               </div>
-              {sources.filter((source) => source.folderId === folder.id && source.status !== "archived").map((source) => <SourceItem key={source.id} source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} />)}
+              {!collapsedFolders.has(folder.id) && sources.filter((source) => source.folderId === folder.id && source.status !== "archived").map((source) => <SourceItem key={source.id} source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} onSettings={onOpenSourceDialog} />)}
             </li>)}
           </ul>
+          <p className="mt-1 px-2 text-xs text-base-content/55">折りたたみはこのブラウザーに保存。↑↓で同じ親の中の表示順を変更します。</p>
         </section>
 
         <section className="mt-7">
           <div className="mb-2 flex items-center justify-between px-2"><h2 className="text-xs font-bold uppercase tracking-wider text-base-content/55">未分類</h2><a className="link link-hover text-xs" href="/api/v1/subscriptions.opml">OPML出力</a></div>
           <div className="menu menu-sm max-h-56 flex-nowrap overflow-y-auto p-0">
-            {sources.filter((source) => source.status !== "archived" && !source.folderId).map((source) => <li key={source.id}><SourceItem source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} /></li>)}
+            {sources.filter((source) => source.status !== "archived" && !source.folderId).map((source) => <li key={source.id}><SourceItem source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} onSettings={onOpenSourceDialog} /></li>)}
           </div>
           <form className="mt-3 space-y-2 rounded-box bg-base-200 p-3" onSubmit={onCreateSource}>
             <p className="text-xs font-semibold">購読先を追加</p>
@@ -107,7 +134,8 @@ export function Sidebar(props: SidebarProps) {
     {folderDialog && <dialog open className="modal modal-open z-50" aria-labelledby="folder-dialog-title">
       <div className="modal-box">
         <h2 id="folder-dialog-title" className="mb-4 text-lg font-bold">{folderDialog.mode === "create" ? "New folder" : "Folder settings"}</h2>
-        <form className="space-y-4" onSubmit={onSaveFolder}>
+        <form onSubmit={onSaveFolder}>
+          <fieldset className="space-y-4" disabled={folderBusy}>
           <label className="form-control w-full">
             <span className="label-text mb-1">Folder name</span>
             <input className="input input-bordered w-full" name="name" maxLength={100} defaultValue={folderDialog.mode === "edit" ? folderDialog.folder.name : ""} placeholder="Folder name" required autoFocus />
@@ -123,18 +151,21 @@ export function Sidebar(props: SidebarProps) {
             <button type="button" className="btn btn-ghost" onClick={onCloseFolderDialog}>Cancel</button>
             <button type="submit" className="btn btn-primary">{folderDialog.mode === "create" ? "Create" : "Save"}</button>
           </div>
+          </fieldset>
         </form>
+        {folderDialog.mode === "edit" && <FolderDeleteControl key={folderDialog.folder.id} folder={folderDialog.folder} folders={folders} disabled={folderBusy} onDelete={onDeleteFolder} />}
       </div>
     </dialog>}
   </>;
 }
 
 /** Uses native details so feed diagnostics also work by keyboard and on touch screens. */
-function SourceItem({ source, selected, onSelect, onToggle }: {
+function SourceItem({ source, selected, onSelect, onToggle, onSettings }: {
   source: Source;
   selected: boolean;
   onSelect: (id: string) => void;
   onToggle: (source: Source) => void;
+  onSettings: (source: Source) => void;
 }) {
   return <div className="block! w-full min-w-0 p-1!">
     <div className="flex min-w-0 items-center gap-1">
@@ -143,6 +174,7 @@ function SourceItem({ source, selected, onSelect, onToggle }: {
         <span className="badge badge-sm shrink-0" aria-label={`未読${source.unreadCount}件`}>{source.unreadCount}</span>
       </button>
       <button className="btn btn-ghost btn-xs shrink-0" onClick={() => onToggle(source)} aria-label={`${source.title}を${source.status === "active" ? "一時停止" : "再開"}`} title={source.status === "active" ? "一時停止" : "再開"}>{source.status === "active" ? <LuPause /> : <LuPlay />}</button>
+      <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${source.title}の購読設定`} title="購読設定" onClick={() => onSettings(source)}><LuSettings /></button>
     </div>
     <details className="px-2 text-xs leading-5">
       <summary className={`cursor-pointer ${source.errorCode ? "text-error" : "text-base-content/60"}`}>
@@ -159,22 +191,6 @@ function SourceItem({ source, selected, onSelect, onToggle }: {
       {source.status === "active" && <p className="mt-1 text-base-content/60">次回対象時刻は取得完了時刻ではありません。毎時の収集処理・待機状況により遅れることがあります。</p>}
     </details>
   </div>;
-}
-
-/** Flattens the folder tree into display order while retaining each folder's depth. */
-function flattenFolders(folders: Folder[]): Array<Folder & { depth: number }> {
-  const result: Array<Folder & { depth: number }> = [];
-  const children = new Map<string | null, Folder[]>();
-  for (const folder of folders) { const group = children.get(folder.parentId) ?? []; group.push(folder); children.set(folder.parentId, group); }
-  const walk = (parent: string | null, depth: number, ancestors: Set<string>) => {
-    for (const folder of children.get(parent) ?? []) {
-      if (ancestors.has(folder.id)) continue;
-      result.push({ ...folder, depth });
-      walk(folder.id, depth + 1, new Set(ancestors).add(folder.id));
-    }
-  };
-  walk(null, 0, new Set());
-  return result;
 }
 
 /** Returns the sidebar label for an article scope. */

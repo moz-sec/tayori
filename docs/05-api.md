@@ -10,6 +10,7 @@
 | GET /folders | 階層と並び順 | 200 |
 | POST /folders | name, parentId | 201 |
 | PATCH /folders/:id | name, parentId, sortOrder | 200 |
+| POST /folders/:id/move | direction: up / down。同じ親の隣接フォルダと表示順を交換 | 204 |
 | DELETE /folders/:id | 子/購読を親に移動 | 204 |
 | GET /sources | active/paused/archived、取得状態、購読先別未読数 | 200 |
 | POST /sources | url, folderId, title optional | 201（初回取得は非同期） |
@@ -51,6 +52,16 @@
 - APIはCache-Control: private, no-store。ログにCookie・JWT・記事本文・秘密付きURLを残さない。
 
 大容量SQLバックアップや復元をHTTP APIに実装しない。運用CLIから実施する。
+
+## フォルダの表示順
+
+`POST /folders/:id/move` は現在の親の中で1つ上・下へ移動する。兄弟は `sort_order, lower(name), id` の順で順位を確定し、兄弟の `sortOrder` を0からの連番へ正規化しながら対象と隣接位置を単一SQLで交換する。初期値がすべて0でも並べ替えでき、複数リクエストの部分成功は発生しない。先頭を上へ、末尾を下へ移動した場合は並びを維持する。親IDは変更しない。更新に失敗した場合は順序を確定表示せず、再操作できる。
+
+サイドバーの折りたたみは配下の購読先と子フォルダを隠す。保存先はこのブラウザーのlocalStorageで、他端末とは共有しない。保存が使えないブラウザーでも表示中の開閉は行える。フォルダ設定の親選択肢には折りたたみにかかわらず全フォルダを表示する。
+
+## フォルダの削除
+
+`DELETE /folders/:id` は直下の子フォルダと購読先を親へ移してフォルダだけを削除する。最上位フォルダを削除した場合、子フォルダは最上位、購読先は未分類へ移る。孫以下の階層、記事・既読・保存状態は維持する。移動と削除はD1の1つのbatchで行い、移動先の同名フォルダと衝突した場合は `409 FOLDER_DELETE_NAME_CONFLICT` を返して変更全体を取り消す。画面では子フォルダの改名や移動を案内し、失敗した確認画面を維持する。
 
 ## 購読先の取得状況
 

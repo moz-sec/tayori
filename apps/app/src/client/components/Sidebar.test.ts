@@ -9,7 +9,7 @@ function render(sources: Source[]) {
   return renderToStaticMarkup(createElement(Sidebar, {
     scope: "all", folderId: null, sourceId: null, folders: [{ id: "folder", parentId: null, name: "Folder", sortOrder: 0, unreadCount: 0 }], sources,
     status: { activeSources: 1, failingSources: 0, lastTickAt: "2026-11-01T11:00:00Z" }, retentionDays: 7,
-    folderDialog: null, importItems: null, importSummary: "", importRows: [], busy: false,
+    folderDialog: null, folderBusy: false, onDeleteFolder: vi.fn(), onMoveFolder: vi.fn(), onOpenSourceDialog: vi.fn(), importItems: null, importSummary: "", importRows: [], busy: false,
     onScopeChange: vi.fn(), onSelectFolder: vi.fn(), onSelectSource: vi.fn(), onOpenFolderDialog: vi.fn(),
     onCloseFolderDialog: vi.fn(), onSaveFolder: vi.fn(), onCreateSource: vi.fn(), onToggleSource: vi.fn(),
     onImportFile: vi.fn(), onImportOpml: vi.fn(),

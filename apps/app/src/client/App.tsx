@@ -2,7 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import { LuPanelLeftClose, LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
 import { ArticleList } from "./components/ArticleList";
 import { Sidebar } from "./components/Sidebar";
-import { request } from "./lib/api-client";
+import { getMutationState, request } from "./lib/api-client";
+import { startForegroundSync } from "./lib/foreground-sync";
+import { loadArticleWindow } from "./lib/article-window";
+import { SourceSettingsDialog } from "./components/SourceSettingsDialog";
 import { parseOpmlFile } from "./lib/opml";
 import { importOpmlRows, summarizeImport, type ImportRow } from "./lib/opml-import";
 import { humanError } from "./lib/errors";
@@ -18,7 +21,12 @@ export function App() {
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
+  const [folderBusy, setFolderBusy] = useState(false);
+  const folderMutationRef = useRef(false);
   const [sources, setSources] = useState<Source[]>([]);
+  const [sourceDialog, setSourceDialog] = useState<Source | null>(null);
+  const dialogOpenRef = useRef(false);
+  useLayoutEffect(() => { dialogOpenRef.current = !!folderDialog || !!sourceDialog; }, [folderDialog, sourceDialog]);
   const [articles, setArticles] = useState<Article[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [retentionDays, setRetentionDays] = useState(7);
@@ -50,6 +58,8 @@ export function App() {
   const reloadVersion = useRef(0);
   const currentView = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
   const currentViewRef = useRef(currentView);
+  const articleCountRef = useRef(articles.length);
+  useLayoutEffect(() => { articleCountRef.current = articles.length; }, [articles.length]);
   useLayoutEffect(() => {
     currentViewRef.current = currentView;
     changeSelection([]);
@@ -60,11 +70,12 @@ export function App() {
   useLayoutEffect(() => { loadedViewRef.current = loadedView; }, [loadedView]);
 
   /** Reloads folders, feeds, account settings, status, and articles in parallel. */
-  const reload = useCallback(async (append = false) => {
+  const reload = useCallback(async (append = false, background = false) => {
     const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
     if (view !== currentViewRef.current) return;
     if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return;
     const version = ++reloadVersion.current;
+    const mutationVersion = getMutationState().version;
     reloadingRef.current = true;
     setReloading(true);
     try {
@@ -77,11 +88,19 @@ export function App() {
         request<Page<Source[]>>("/sources"),
         request<Page<{ retentionDays: number }>>("/me"),
         request<Page<{ activeSources: number; failingSources: number; lastTickAt: string | null }>>("/status"),
-        request<Page<Article[]>>(`/articles?${query}`),
+        background ? loadArticleWindow<Article>(articleCountRef.current, (limit, cursor) => {
+          const pageQuery = new URLSearchParams(query);
+          pageQuery.set("limit", String(limit));
+          if (cursor) pageQuery.set("cursor", cursor);
+          return request<Page<Article[]>>(`/articles?${pageQuery}`);
+        }) : request<Page<Article[]>>(`/articles?${query}`),
       ]);
       if (version !== reloadVersion.current || view !== currentViewRef.current) return;
+      if (background && (mutationVersion !== getMutationState().version || dialogOpenRef.current)) return;
       setFolders(folderResult.data);
       setSources(sourceResult.data);
+      if (folderId && !folderResult.data.some((folder) => folder.id === folderId)) { setFolderId(null); return; }
+      if (sourceId && !sourceResult.data.some((source) => source.id === sourceId && source.status !== "archived")) { setSourceId(null); return; }
       setRetentionDays(me.data.retentionDays);
       setStatus(statusResult.data);
       setArticles((current) => append ? [...current, ...articleResult.data] : articleResult.data);
@@ -95,6 +114,7 @@ export function App() {
       setNoticeError(false);
     } catch (error) {
       if (version !== reloadVersion.current || view !== currentViewRef.current) return;
+      if (background && mutationVersion !== getMutationState().version) return;
       setNotice(humanError(error));
       setNoticeError(true);
     } finally {
@@ -130,6 +150,9 @@ export function App() {
   /** Creates or updates a folder from the folder dialog form. */
   const saveFolder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (folderMutationRef.current) return;
+    folderMutationRef.current = true;
+    setFolderBusy(true);
     const form = event.currentTarget;
     const values = new FormData(form);
     try {
@@ -143,6 +166,36 @@ export function App() {
       }
       setFolderDialog(null); form.reset(); await reload();
     } catch (error) { tell(humanError(error), true); }
+    finally { folderMutationRef.current = false; setFolderBusy(false); }
+  };
+
+  /** Deletes only the folder, retaining its feeds and articles at the parent level. */
+  const deleteFolder = async (folder: Folder) => {
+    if (folderMutationRef.current) throw new Error("FOLDER_BUSY");
+    folderMutationRef.current = true;
+    setFolderBusy(true);
+    try {
+      await request(`/folders/${encodeURIComponent(folder.id)}`, { method: "DELETE" });
+      setFolderDialog(null);
+      if (currentViewRef.current.split(":")[1] === folder.id) {
+        // Changing the view triggers a guarded reload for its new parent (or all articles).
+        setFolderId(folder.parentId);
+      } else {
+        await latestReload.current();
+      }
+    } finally { folderMutationRef.current = false; setFolderBusy(false); }
+  };
+
+  /** Moves a folder within its current sibling group in one atomic server operation. */
+  const moveFolder = async (id: string, direction: "up" | "down") => {
+    if (folderMutationRef.current) return;
+    folderMutationRef.current = true;
+    setFolderBusy(true);
+    try {
+      await request(`/folders/${encodeURIComponent(id)}/move`, { method: "POST", body: JSON.stringify({ direction }) });
+      await latestReload.current();
+    } catch (error) { tell(humanError(error), true); }
+    finally { folderMutationRef.current = false; setFolderBusy(false); }
   };
 
   /** Creates a feed from the add-feed form. */
@@ -216,6 +269,17 @@ export function App() {
 
   const latestReload = useRef(reload);
   useLayoutEffect(() => { latestReload.current = reload; }, [reload]);
+
+  useEffect(() => {
+    const stop = startForegroundSync({
+      window, document,
+      canSync: () => !reloadingRef.current && !markingReadRef.current && updatingArticlesRef.current === 0
+        && !importingRef.current && !parsingImportRef.current && !folderMutationRef.current
+        && !dialogOpenRef.current && getMutationState().pending === 0,
+      sync: () => latestReload.current(false, true),
+    });
+    return () => { stop(); ++reloadVersion.current; };
+  }, []);
 
   /** Updates selection only for the current loaded view, never during a bulk operation. */
   const toggleArticleSelection = (id: string) => {
@@ -295,6 +359,7 @@ export function App() {
         status={status}
         retentionDays={retentionDays}
         folderDialog={folderDialog}
+        folderBusy={folderBusy}
         importItems={importItems}
         importSummary={importSummary}
         importRows={importRows}
@@ -302,14 +367,27 @@ export function App() {
         onScopeChange={(nextScope) => { setScope(nextScope); setFolderId(null); setSourceId(null); }}
         onSelectFolder={(id) => { setFolderId(id); setSourceId(null); setScope("all"); }}
         onSelectSource={(id) => { setSourceId(id); setFolderId(null); setScope("all"); }}
-        onOpenFolderDialog={setFolderDialog}
-        onCloseFolderDialog={() => setFolderDialog(null)}
+        onOpenFolderDialog={(dialog) => { if (!folderMutationRef.current) setFolderDialog(dialog); }}
+        onCloseFolderDialog={() => { if (!folderMutationRef.current) setFolderDialog(null); }}
         onSaveFolder={saveFolder}
+        onMoveFolder={moveFolder}
+        onDeleteFolder={deleteFolder}
         onCreateSource={createSource}
         onToggleSource={toggleSource}
+        onOpenSourceDialog={setSourceDialog}
         onImportFile={(file) => void handleOpmlFile(file)}
         onImportOpml={() => void importOpml()}
       />
+      {sourceDialog && <SourceSettingsDialog
+        key={sourceDialog.id}
+        source={sourceDialog}
+        folders={folders}
+        onClose={() => setSourceDialog(null)}
+        onCommitted={async (id, archived) => {
+          if (archived) setSourceId((current) => current === id ? null : current);
+          await latestReload.current();
+        }}
+      />}
     </div>
   );
 }
