@@ -12,10 +12,9 @@
 | PATCH /folders/:id | name, parentId, sortOrder | 200 |
 | DELETE /folders/:id | 子/購読を親に移動 | 204 |
 | GET /sources | active/paused/archivedと取得状態 | 200 |
-| POST /sources | url, folderId, title optional | 201（取得は後続tick） |
+| POST /sources | url, folderId, title optional | 201（初回取得は非同期） |
 | PATCH /sources/:id | folderId, title, status | 200 |
 | DELETE /sources/:id | アーカイブ化 | 204 |
-| POST /sources/:id/refresh | next_fetch_atを前倒し | 202 |
 | POST /sources/import | sources配列（最大5件） | 200、追加/既存/エラー内訳 |
 | GET /subscriptions.opml | 購読とフォルダをXML出力 | 200 |
 | GET /articles | scope, folderId, sourceId, boardId, cursor, limit | 200 |
@@ -45,7 +44,8 @@
 - PATCHは値を指定する。toggle命令を使わず、再送時に反転させない。
 - 単一記事のversion競合は再読込して再操作。まとめて既読は冪等の値設定とし、欠けたIDと更新件数を返す。
 - 購読URL正規化と一意制約により移行の再送を許容する。フォルダの重複登録は409を返す。
-- POST /refreshは同期取得しません。次の5分tickで候補になるよう次回時刻を前倒しします。
+- 新規購読の登録・インポート時は、初回RSS取得ジョブをQueueへ送信する。RSS取得と記事保存は非同期で行い、送信に失敗した場合は毎時のCollector tickで回収する。
+- 画面のRefreshとページ表示はD1に保存済みの記事を再取得するだけとし、RSS取得ジョブは作成しない。
 - 名前は100文字、URL は2048文字など、入力値をサーバー側で検証する。すべての SQL で bind パラメータを使う。
 - Origin、CSRF、Content-Typeを検証し、CORSで他オリジンを許可しない。GETに更新副作用を持たせない。
 - APIはCache-Control: private, no-store。ログにCookie・JWT・記事本文・秘密付きURLを残さない。
