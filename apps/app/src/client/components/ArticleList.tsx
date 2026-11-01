@@ -5,12 +5,13 @@ import { formatDate } from "../lib/format";
 interface ArticleListProps {
   articles: Article[];
   nextCursor: string | null;
+  loadMoreDisabled?: boolean;
   onUpdate: (article: Article, changes: Record<string, unknown>, message: string) => void;
   onLoadMore: () => void;
 }
 
 /** Renders the article list, empty state, and load-more action. */
-export function ArticleList({ articles, nextCursor, onUpdate, onLoadMore }: ArticleListProps) {
+export function ArticleList({ articles, nextCursor, loadMoreDisabled = false, onUpdate, onLoadMore }: ArticleListProps) {
   if (articles.length === 0) {
     return <div className="card border border-base-300 bg-base-100 shadow-sm">
       <div className="card-body items-center py-16 text-center">
@@ -23,7 +24,7 @@ export function ArticleList({ articles, nextCursor, onUpdate, onLoadMore }: Arti
 
   return <>
     <div className="space-y-4">{articles.map((article) => <ArticleCard key={article.id} article={article} onUpdate={onUpdate} />)}</div>
-    {nextCursor && <div className="mt-7 text-center"><button className="btn btn-outline" onClick={onLoadMore}>さらに読み込む</button></div>}
+    {nextCursor && <div className="mt-7 text-center"><button className="btn btn-outline" disabled={loadMoreDisabled} onClick={onLoadMore}>さらに読み込む</button></div>}
   </>;
 }
 
