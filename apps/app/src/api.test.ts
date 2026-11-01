@@ -60,11 +60,9 @@ describe("source API database errors", () => {
   });
 });
 
-function sourceCreationDatabase(options: { budgetAvailable?: boolean; activeFetchJob?: boolean } = {}) {
+function sourceCreationDatabase(options: { budgetAvailable?: boolean } = {}) {
   let sourceRow: Record<string, unknown> | null = null;
-  const jobs: Array<{ id: string; status: string }> = options.activeFetchJob
-    ? [{ id: "existing-job", status: "pending" }]
-    : [];
+  const jobs: Array<{ id: string; status: string }> = [];
   const db = {
     prepare: vi.fn((sql: string) => {
       let values: unknown[] = [];
@@ -89,7 +87,6 @@ function sourceCreationDatabase(options: { budgetAvailable?: boolean; activeFetc
             };
           }
           if (sql.startsWith("INSERT INTO fetch_jobs")) {
-            if (options.activeFetchJob) return { success: true, meta: { changes: 0 } };
             jobs.push({ id: String(values[0]), status: "pending" });
           }
           if (sql.startsWith("UPDATE fetch_jobs SET status = 'sent'")) {
@@ -159,18 +156,69 @@ describe("initial feed fetch scheduling", () => {
     expect(jobs).toEqual([{ id: jobs[0]?.id, status: "pending" }]);
   });
 
-  it("does not send a second initial job when the source already has an active job", async () => {
-    const { db, jobs } = sourceCreationDatabase({ activeFetchJob: true });
-    const send = vi.fn();
-    const response = await api.request("http://localhost/api/v1/sources", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-      body: JSON.stringify({ url: "https://example.com/feed.xml" }),
-    }, { DB: db, JOBS: { send } } as unknown as Env);
+  it.each(["same", "different"] as const)(
+    "checks the source association when an active job belongs to the %s source",
+    async (association) => {
+      const database = sqliteD1();
+      // Exercise the SQL guard itself rather than relying on the unique index to mask a missing guard.
+      database.sqlite.exec("DROP INDEX fetch_jobs_one_active_per_source");
+      if (association === "same") {
+        database.sqlite.exec(`CREATE TRIGGER seed_initial_job AFTER INSERT ON sources BEGIN
+          INSERT INTO fetch_jobs(id, source_id, generation, status)
+          VALUES ('existing-job', NEW.id, NEW.generation, 'pending');
+        END`);
+      } else {
+        database.sqlite.exec(`INSERT INTO sources(id, title, normalized_url) VALUES ('other-source', 'Other', 'https://example.com/other.xml');
+          INSERT INTO fetch_jobs(id, source_id, generation, status) VALUES ('existing-job', 'other-source', 1, 'pending');`);
+      }
+      const send = vi.fn(async (_message: QueueMessage) => ({ metadata: { metrics: { backlogCount: 1, backlogBytes: 0 } } }));
+      try {
+        const response = await api.request("http://localhost/api/v1/sources", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+          body: JSON.stringify({ url: "https://example.com/feed.xml" }),
+        }, { DB: database.binding, JOBS: { send } } as unknown as Env);
+        expect(response.status).toBe(201);
+        const { data: created } = await response.json() as { data: { id: string } };
+        const sourceJobs = database.sqlite.prepare("SELECT id, source_id, status FROM fetch_jobs WHERE source_id = ?").all(created.id);
+        if (association === "same") {
+          expect(send).not.toHaveBeenCalled();
+          expect(sourceJobs).toEqual([{ id: "existing-job", source_id: created.id, status: "pending" }]);
+        } else {
+          expect(send).toHaveBeenCalledTimes(1);
+          expect(sourceJobs).toEqual([{ id: expect.any(String), source_id: created.id, status: "sent" }]);
+          expect(send).toHaveBeenCalledWith({ schemaVersion: 1, type: "fetch", jobId: sourceJobs[0]?.id });
+          expect(database.sqlite.prepare("SELECT source_id, status FROM fetch_jobs WHERE id = 'existing-job'").get())
+            .toEqual({ source_id: "other-source", status: "pending" });
+        }
+      } finally {
+        database.sqlite.close();
+      }
+    },
+  );
 
-    expect(response.status).toBe(201);
-    expect(send).not.toHaveBeenCalled();
-    expect(jobs).toEqual([{ id: "existing-job", status: "pending" }]);
+  it("enqueues the new source's initial fetch exactly once during OPML import", async () => {
+    const database = sqliteD1();
+    const send = vi.fn(async (_message: QueueMessage) => ({ metadata: { metrics: { backlogCount: 1, backlogBytes: 0 } } }));
+    try {
+      const response = await api.request("http://localhost/api/v1/sources/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+        body: JSON.stringify({ sources: [{ url: "https://example.com/import.xml", title: "Imported feed" }] }),
+      }, { DB: database.binding, JOBS: { send } } as unknown as Env);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { data: Array<{ status: string; source: { id: string; url: string } }> };
+      expect(body.data).toHaveLength(1);
+      expect(body.data[0]?.status).toBe("added");
+      const job = database.sqlite.prepare("SELECT id, source_id, status FROM fetch_jobs").get();
+      expect(job).toEqual({ id: expect.any(String), source_id: body.data[0]?.source.id, status: "sent" });
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({ schemaVersion: 1, type: "fetch", jobId: job?.id });
+      expect(database.sqlite.prepare("SELECT normalized_url FROM sources WHERE id = ?").get(job!.source_id))
+        .toEqual({ normalized_url: "https://example.com/import.xml" });
+    } finally {
+      database.sqlite.close();
+    }
   });
 });
 
