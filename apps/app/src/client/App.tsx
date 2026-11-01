@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { LuPanelLeftClose, LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
 import { ArticleList } from "./components/ArticleList";
 import { Sidebar } from "./components/Sidebar";
@@ -30,15 +30,29 @@ export function App() {
   const [markingRead, setMarkingRead] = useState(false);
   const markingReadRef = useRef(false);
   const [markReadResult, setMarkReadResult] = useState<MarkReadResult | null>(null);
+  const [reloading, setReloading] = useState(false);
+  const reloadingRef = useRef(false);
+  const [loadedView, setLoadedView] = useState<string | null>(null);
+  const loadedViewRef = useRef<string | null>(null);
   const reloadVersion = useRef(0);
   const currentView = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
   const currentViewRef = useRef(currentView);
-  currentViewRef.current = currentView;
+  useLayoutEffect(() => {
+    currentViewRef.current = currentView;
+    ++reloadVersion.current;
+    reloadingRef.current = true;
+    setReloading(true);
+  }, [currentView]);
+  useLayoutEffect(() => { loadedViewRef.current = loadedView; }, [loadedView]);
 
   /** Reloads folders, feeds, account settings, status, and articles in parallel. */
   const reload = useCallback(async (append = false) => {
-    const version = ++reloadVersion.current;
     const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
+    if (view !== currentViewRef.current) return;
+    if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return;
+    const version = ++reloadVersion.current;
+    reloadingRef.current = true;
+    setReloading(true);
     try {
       const query = new URLSearchParams({ scope, limit: "50" });
       if (folderId) query.set("folderId", folderId);
@@ -58,12 +72,18 @@ export function App() {
       setStatus(statusResult.data);
       setArticles((current) => append ? [...current, ...articleResult.data] : articleResult.data);
       setNextCursor(articleResult.nextCursor ?? null);
+      setLoadedView(view);
       setNotice("");
       setNoticeError(false);
     } catch (error) {
       if (version !== reloadVersion.current || view !== currentViewRef.current) return;
       setNotice(humanError(error));
       setNoticeError(true);
+    } finally {
+      if (version === reloadVersion.current && view === currentViewRef.current) {
+        reloadingRef.current = false;
+        setReloading(false);
+      }
     }
   }, [scope, folderId, sourceId, nextCursor]);
 
@@ -167,11 +187,12 @@ export function App() {
   };
 
   const latestReload = useRef(reload);
-  latestReload.current = reload;
+  useLayoutEffect(() => { latestReload.current = reload; }, [reload]);
 
   /** Uses a fixed snapshot, retaining unconfirmed IDs independently of pagination. */
   const markVisibleRead = async (retry = false) => {
     if (markingReadRef.current) return;
+    if (!retry && (reloadingRef.current || loadedViewRef.current !== currentViewRef.current)) return;
     const ids = retry ? markReadResult?.remainingIds ?? [] : articles.map((article) => article.id);
     if (!ids.length) return;
     markingReadRef.current = true;
@@ -206,7 +227,7 @@ export function App() {
             </div>
             <div className="flex items-center gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
-              <button className="btn btn-outline btn-sm" onClick={() => void markVisibleRead()} disabled={!articles.length || markingRead || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : "表示分を既読"}</button>
+              <button className="btn btn-outline btn-sm" onClick={() => void markVisibleRead()} disabled={!articles.length || reloading || loadedView !== currentView || markingRead || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : "表示分を既読"}</button>
             </div>
           </div>
 
@@ -214,11 +235,14 @@ export function App() {
           {markReadResult && <div role="status" className={`alert mb-5 ${markReadResult.remainingIds.length ? "alert-error" : "alert-info"}`}>
             <span>{markReadResult.updated}件を既読にしました。{markReadResult.completed > markReadResult.updated && `削除済みなどの${markReadResult.completed - markReadResult.updated}件は更新対象外でした。`}{markReadResult.remainingIds.length > 0 && `操作開始時の記事のうち、残り${markReadResult.remainingIds.length}件は処理を確認できていません。${humanError(markReadResult.error)}`}</span>
             {markReadResult.remainingIds.length > 0
-              ? <button className="btn btn-sm" disabled={markingRead} onClick={() => void markVisibleRead(true)}>残り{markReadResult.remainingIds.length}件を再試行</button>
+              ? <div className="flex flex-wrap gap-2">
+                <button className="btn btn-sm" disabled={markingRead} onClick={() => void markVisibleRead(true)}>残り{markReadResult.remainingIds.length}件を再試行</button>
+                <button className="btn btn-ghost btn-sm" disabled={markingRead} onClick={() => { if (!markingReadRef.current) setMarkReadResult(null); }}>残りの処理を取り消す</button>
+              </div>
               : <button className="btn btn-ghost btn-sm" onClick={() => setMarkReadResult(null)}>閉じる</button>}
           </div>}
 
-          <ArticleList articles={articles} nextCursor={nextCursor} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
+          <ArticleList articles={articles} nextCursor={nextCursor} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
         </main>
       </div>
 
