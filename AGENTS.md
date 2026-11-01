@@ -16,4 +16,4 @@ Preserve this trailer when preparing a squash commit message.
 
 ## CodeRabbit Review
 
-PR を作成した後、CodeRabbit のレビューを確認し、指摘に応じて修正してください。
+After creating a pull request, review CodeRabbit feedback and make the corresponding changes.
