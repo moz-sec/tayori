@@ -22,10 +22,18 @@ D1 の変更は、旧 Worker と互換性のある追加変更に限る。既存
 |---|---|
 | Snyk Open Source | npm workspacesの本番・開発依存、PRチェック、日次の継続監視、修正版がある場合の修正PR |
 | Semgrep CE | apps / packagesのソースコードをPR・リリースタグ・週次で解析 |
-| Dependabot | GitHub Actionsのバージョン更新PRのみ |
+| Renovate | GitHub Actionsのバージョン更新PRのみ。日本時間の月曜5時前に作成し、同時に最大5件まで |
 | npm audit | Snykの導入確認が完了するまで依存関係検査を継続 |
 
 Snykの連携設定はSnyk側で管理する。`.snyk`ファイルは連携を有効化するものではないため、理由のある例外設定が必要になるまで追加しない。自動修正PRのマージは手動とし、通常のCIを通す。
+
+## Renovate の導入
+
+1. [Renovate GitHub App](https://github.com/apps/renovate) を `moz-sec/tayori` にインストールする。
+2. Renovate のオンボーディングと設定の読み込みを確認し、GitHub Actions の更新 PR が作成されることを確認する。
+3. 更新 PR のコミット SHA と CI の結果を確認して手動でマージする。
+
+`renovate.json` では GitHub Actions のみを更新対象とする。npm 依存関係の監視と修正 PR は引き続き Snyk が担当する。Dependabot のバージョン更新設定は削除しており、セキュリティアラートの設定とは別に管理する。Renovate App が利用可能になるまで GitHub Actions の自動更新 PR は作成されない。
 
 ## Snyk接続手順と移行条件
 
@@ -56,7 +64,7 @@ Node.js 24、Ubuntu 24.04を使用する。インストールはルートのpack
 - GITHUB_TOKENはcontents: readのみ。checkout後に認証情報を残さない。
 - pull_requestを使用し、pull_request_targetでPRのコードを実行しない。PRのCIにSecretsは不要。本番のSecretsはproduction Environmentにのみ登録する。
 - SnykにはGitHub連携を通じてリポジトリへのアクセスを付与する。Actionsの権限とは別にSnyk側の連携権限を管理する。
-- Actionsは完全なコミットSHAで固定し、Dependabotで週次の更新PRを作成する。
+- Actionsは完全なコミットSHAで固定し、Renovateで週次の更新PRを作成する。自動マージは行わず、CIを確認して手動でマージする。
 - Semgrep CEはバージョンを固定。Registryのp/defaultルールは最新を取得するため、判定は更新される。metricsとバージョン確認を無効化し、ソースや結果をSemgrepプラットフォームへアップロードする設定は使わない。
 - npm auditは依存情報をnpm Registryへ送信する。取得障害や解析エラーもジョブ失敗として扱い、黙って検査を省略しない。
 - 設定中のnpm Registry mirrorはRolldownのLinux向けoptional dependencyをlockfileに収録しないため、Linux runnerでは`npm ci`後に`@rolldown/binding-linux-x64-gnu`をlockfile非更新で追加する。Node 24 / x64 / glibc runnerを前提とする。mirrorが修正されたら暫定手順を削除できる。
