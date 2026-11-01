@@ -1,4 +1,5 @@
 import type { QueueMessage } from "@tayori/shared";
+import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
 import {
   DEFAULT_RETENTION_DAYS,
   MAX_ARTICLES_PER_FEED,
@@ -11,7 +12,6 @@ const JOB_LEASE_SECONDS = 300;
 const HOUR_SECONDS = 3_600;
 const JOB_DELIVERY_SECONDS = HOUR_SECONDS;
 const TICK_RESERVATION = 4;
-const FETCH_RESERVATION = 4;
 // Recovery and new-job dispatch use separate pages to stay within 50 D1 queries.
 const FETCH_BATCH_LIMIT = 10;
 
@@ -99,9 +99,7 @@ async function processTick(env: Env, scheduledAtMs: number, cursor?: string): Pr
     "SELECT id, source_id, generation, status FROM fetch_jobs WHERE status = 'pending' ORDER BY created_at LIMIT ?",
   ).bind(FETCH_BATCH_LIMIT).all<JobRow>()).results ?? [];
   for (const job of pending) {
-    if (!await reserveQueueOperations(env.DB, FETCH_RESERVATION, now)) return;
-    await env.JOBS.send({ schemaVersion: 1, type: "fetch", jobId: job.id });
-    await markJobSent(env.DB, job.id, now);
+    if (!await dispatchFetchJob(env.DB, env.JOBS, job.id, now)) return;
   }
   if (pending.length) {
     await continueTick(env, roundAt, cursor ?? "", now);
@@ -116,7 +114,6 @@ async function processTick(env: Env, scheduledAtMs: number, cursor?: string): Pr
   ).bind(roundAt, cursor ?? "", FETCH_BATCH_LIMIT).all<SourceRow>()).results ?? [];
 
   for (const source of due) {
-    if (!await reserveQueueOperations(env.DB, FETCH_RESERVATION, now)) return;
     const jobId = crypto.randomUUID();
     const nextFetchAt = roundAt + HOUR_SECONDS;
     const results = await env.DB.batch([
@@ -133,8 +130,7 @@ async function processTick(env: Env, scheduledAtMs: number, cursor?: string): Pr
       ).bind(nextFetchAt, source.id, source.generation, roundAt, jobId),
     ]);
     if (!results[0]?.meta.changes) continue;
-    await env.JOBS.send({ schemaVersion: 1, type: "fetch", jobId });
-    await markJobSent(env.DB, jobId, now);
+    if (!await dispatchFetchJob(env.DB, env.JOBS, jobId, now)) return;
   }
 
   if (due.length === FETCH_BATCH_LIMIT) await continueTick(env, roundAt, due.at(-1)!.id, now);
@@ -144,12 +140,6 @@ async function processTick(env: Env, scheduledAtMs: number, cursor?: string): Pr
 async function continueTick(env: Env, roundAt: number, cursor: string, now: number): Promise<void> {
   if (!await reserveQueueOperations(env.DB, TICK_RESERVATION, now)) return;
   await env.JOBS.send({ schemaVersion: 1, type: "tick", scheduledAt: roundAt * 1000, cursor });
-}
-
-/** Records a delivery deadline so lost Queue messages can be sent again. */
-async function markJobSent(db: D1Database, jobId: string, now: number): Promise<void> {
-  await db.prepare("UPDATE fetch_jobs SET status = 'sent', lease_until = ? WHERE id = ? AND status = 'pending'")
-    .bind(now + JOB_DELIVERY_SECONDS, jobId).run();
 }
 
 /** Aligns successful polling to the next hourly Cron boundary. */

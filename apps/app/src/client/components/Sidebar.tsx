@@ -1,4 +1,5 @@
 import type { FormEvent } from "react";
+import type { ImportRow } from "../lib/opml-import";
 import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss } from "react-icons/lu";
 import { formatDate } from "../lib/format";
 import type { Folder, FolderDialog, ImportOutline, Scope, Source } from "../types";
@@ -14,6 +15,7 @@ interface SidebarProps {
   folderDialog: FolderDialog | null;
   importItems: ImportOutline[] | null;
   importSummary: string;
+  importRows: ImportRow[];
   busy: boolean;
   onScopeChange: (scope: Scope) => void;
   onSelectFolder: (id: string) => void;
@@ -31,7 +33,7 @@ interface SidebarProps {
 export function Sidebar(props: SidebarProps) {
   const {
     scope, folderId, sourceId, folders, sources, status, retentionDays, folderDialog, importItems,
-    importSummary, busy, onScopeChange, onSelectFolder, onSelectSource, onOpenFolderDialog,
+    importSummary, importRows, busy, onScopeChange, onSelectFolder, onSelectSource, onOpenFolderDialog,
     onCloseFolderDialog, onSaveFolder, onCreateSource, onToggleSource, onImportFile, onImportOpml,
   } = props;
   const flatFolders = flattenFolders(folders);
@@ -87,9 +89,15 @@ export function Sidebar(props: SidebarProps) {
           </form>
           <div className="mt-3 space-y-2 rounded-box bg-base-200 p-3">
             <p className="text-xs font-semibold">OPMLを読み込む</p>
-            <input className="file-input file-input-bordered file-input-xs w-full" type="file" accept=".opml,.xml,text/xml,application/xml" onChange={(event) => onImportFile(event.currentTarget.files?.[0])} />
-            {importSummary && <p className="text-xs text-base-content/70">{importSummary}</p>}
-            {importItems && <><p className="text-xs">{importItems.length}件を確認しました。</p><button className="btn btn-secondary btn-sm w-full" disabled={busy} onClick={onImportOpml}>{busy ? <span className="loading loading-spinner loading-xs" /> : "確認して取り込む"}</button></>}
+            <input className="file-input file-input-bordered file-input-xs w-full" type="file" disabled={busy} accept=".opml,.xml,text/xml,application/xml" onChange={(event) => onImportFile(event.currentTarget.files?.[0])} />
+            {importSummary && <p role="status" className="text-xs text-base-content/70">{importSummary}</p>}
+            {importRows.some((row) => row.status === "error" || row.status === "pending") && <ul className="max-h-56 space-y-2 overflow-y-auto text-xs" aria-label="OPML取り込みの未完了項目">
+              {importRows.map((row, index) => row.status === "error" || row.status === "pending" ? <li key={index} className="break-all">
+                <span className="font-semibold">{row.status === "error" ? "失敗" : "未処理"}</span> {row.outline.url}
+                {row.error && <p>{row.error}</p>}
+              </li> : null)}
+            </ul>}
+            {!!importItems?.length && <><p className="text-xs">対象 {importItems.length}件</p><button className="btn btn-secondary btn-sm w-full" disabled={busy} onClick={onImportOpml}>{busy ? <span className="loading loading-spinner loading-xs" /> : importRows.some((row) => row.status !== "pending") ? "失敗・未処理分を再試行" : "確認して取り込む"}</button></>}
           </div>
         </section>
 

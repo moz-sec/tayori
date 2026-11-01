@@ -3,7 +3,8 @@ import { LuPanelLeftClose, LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
 import { ArticleList } from "./components/ArticleList";
 import { Sidebar } from "./components/Sidebar";
 import { request } from "./lib/api-client";
-import { ensureFolderPaths, parseOpmlFile } from "./lib/opml";
+import { parseOpmlFile } from "./lib/opml";
+import { importOpmlRows, summarizeImport, type ImportRow } from "./lib/opml-import";
 import { humanError } from "./lib/errors";
 import { formatDate } from "./lib/format";
 import { markArticlesRead, type MarkReadResult } from "./lib/mark-read";
@@ -26,9 +27,15 @@ export function App() {
   const [noticeError, setNoticeError] = useState(false);
   const [importItems, setImportItems] = useState<ImportOutline[] | null>(null);
   const [importSummary, setImportSummary] = useState("");
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const importingRef = useRef(false);
+  const parsingImportRef = useRef(false);
+  const importFileGenerationRef = useRef(0);
   const [busy, setBusy] = useState(false);
   const [markingRead, setMarkingRead] = useState(false);
   const markingReadRef = useRef(false);
+  const [updatingArticles, setUpdatingArticles] = useState(0);
+  const updatingArticlesRef = useRef(0);
   const [markReadResult, setMarkReadResult] = useState<MarkReadResult | null>(null);
   const [reloading, setReloading] = useState(false);
   const reloadingRef = useRef(false);
@@ -93,6 +100,9 @@ export function App() {
   const tell = (message: string, error = false) => { setNotice(message); setNoticeError(error); };
   /** Updates an article's read or saved state, then reloads the list. */
   const updateArticle = async (article: Article, changes: Record<string, unknown>, message: string) => {
+    if (markingReadRef.current) return;
+    updatingArticlesRef.current++;
+    setUpdatingArticles((count) => count + 1);
     try {
       await request(`/articles/${encodeURIComponent(article.id)}`, {
         method: "PATCH", body: JSON.stringify({ ...changes, expectedVersion: article.version }),
@@ -100,6 +110,10 @@ export function App() {
       tell(message);
       await reload();
     } catch (error) { tell(humanError(error), true); }
+    finally {
+      updatingArticlesRef.current--;
+      setUpdatingArticles((count) => count - 1);
+    }
   };
 
   /** Creates or updates a folder from the folder dialog form. */
@@ -145,45 +159,48 @@ export function App() {
 
   /** Parses a selected OPML file and stores its feeds for import confirmation. */
   const handleOpmlFile = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || importingRef.current) return;
+    const generation = ++importFileGenerationRef.current;
+    parsingImportRef.current = true;
+    setImportItems(null);
+    setImportRows([]);
+    setImportSummary("OPMLを確認中…");
     try {
       const items = await parseOpmlFile(file);
+      if (generation !== importFileGenerationRef.current) return;
       setImportItems(items);
+      setImportRows(items.map((outline) => ({ outline, status: "pending" })));
       setImportSummary(`${items.length}件の購読先を確認しました`);
     } catch (error) {
+      if (generation !== importFileGenerationRef.current) return;
       setImportItems(null);
+      setImportRows([]);
       setImportSummary("");
       tell(humanError(error), true);
+    } finally {
+      if (generation === importFileGenerationRef.current) parsingImportRef.current = false;
     }
   };
 
-  /** Imports the confirmed OPML feeds while preserving their folder hierarchy. */
+  /** Imports confirmed feeds and retains failed or unprocessed entries for retry. */
   const importOpml = async () => {
-    if (!importItems) return;
+    if (!importItems?.length || importingRef.current || parsingImportRef.current) return;
+    importingRef.current = true;
     setBusy(true);
     try {
-      const folderIds = await ensureFolderPaths(importItems.map((item) => item.folderPath));
-      let added = 0;
-      let existing = 0;
-      for (let offset = 0; offset < importItems.length; offset += 5) {
-        const batch = importItems.slice(offset, offset + 5).map((item) => ({
-          url: item.url, title: item.title, siteUrl: item.siteUrl,
-          folderId: folderIds.get(JSON.stringify(item.folderPath)) ?? null,
-        }));
-        const result = await request<Page<Array<{ status: string }>>>("/sources/import", {
-          method: "POST", body: JSON.stringify({ sources: batch }),
-        });
-        for (const item of result.data) {
-          if (item.status === "added") added++;
-          if (item.status === "existing") existing++;
-        }
-      }
-      setImportSummary(`追加 ${added} 件、登録済み ${existing} 件`);
-      setImportItems(null);
-      tell(`OPMLを取り込みました（追加 ${added} 件、登録済み ${existing} 件）。`);
+      const result = await importOpmlRows(importRows, (rows) => {
+        setImportRows(rows);
+        setImportSummary(summarizeImport(rows));
+      });
+      const remaining = result.rows.filter((row) => row.status === "pending" || row.status === "error");
+      setImportRows(result.rows);
+      setImportItems(remaining.length ? remaining.map((row) => row.outline) : null);
+      setImportSummary(`${remaining.length ? "取り込みは未完了です。" : "すべて取り込みました。"}${summarizeImport(result.rows)}${result.interrupted ? `。${result.interrupted}` : ""}`);
       await reload();
-    } catch (error) { tell(`OPMLを取り込めませんでした。${humanError(error)}`, true); }
-    finally { setBusy(false); }
+    } finally {
+      importingRef.current = false;
+      setBusy(false);
+    }
   };
 
   const latestReload = useRef(reload);
@@ -191,7 +208,7 @@ export function App() {
 
   /** Uses a fixed snapshot, retaining unconfirmed IDs independently of pagination. */
   const markVisibleRead = async (retry = false) => {
-    if (markingReadRef.current) return;
+    if (markingReadRef.current || updatingArticlesRef.current > 0) return;
     if (!retry && (reloadingRef.current || loadedViewRef.current !== currentViewRef.current)) return;
     const ids = retry ? markReadResult?.remainingIds ?? [] : articles.map((article) => article.id);
     if (!ids.length) return;
@@ -227,7 +244,7 @@ export function App() {
             </div>
             <div className="flex items-center gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
-              <button className="btn btn-outline btn-sm" onClick={() => void markVisibleRead()} disabled={!articles.length || reloading || loadedView !== currentView || markingRead || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : "表示分を既読"}</button>
+              <button className="btn btn-outline btn-sm" onClick={() => void markVisibleRead()} disabled={!articles.length || reloading || loadedView !== currentView || markingRead || updatingArticles > 0 || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : "表示分を既読"}</button>
             </div>
           </div>
 
@@ -236,13 +253,13 @@ export function App() {
             <span>{markReadResult.updated}件を既読にしました。{markReadResult.completed > markReadResult.updated && `削除済みなどの${markReadResult.completed - markReadResult.updated}件は更新対象外でした。`}{markReadResult.remainingIds.length > 0 && `操作開始時の記事のうち、残り${markReadResult.remainingIds.length}件は処理を確認できていません。${humanError(markReadResult.error)}`}</span>
             {markReadResult.remainingIds.length > 0
               ? <div className="flex flex-wrap gap-2">
-                <button className="btn btn-sm" disabled={markingRead} onClick={() => void markVisibleRead(true)}>残り{markReadResult.remainingIds.length}件を再試行</button>
+                <button className="btn btn-sm" disabled={markingRead || updatingArticles > 0} onClick={() => void markVisibleRead(true)}>残り{markReadResult.remainingIds.length}件を再試行</button>
                 <button className="btn btn-ghost btn-sm" disabled={markingRead} onClick={() => { if (!markingReadRef.current) setMarkReadResult(null); }}>残りの処理を取り消す</button>
               </div>
               : <button className="btn btn-ghost btn-sm" onClick={() => setMarkReadResult(null)}>閉じる</button>}
           </div>}
 
-          <ArticleList articles={articles} nextCursor={nextCursor} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
+          <ArticleList articles={articles} nextCursor={nextCursor} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} updatesDisabled={markingRead} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
         </main>
       </div>
 
@@ -257,6 +274,7 @@ export function App() {
         folderDialog={folderDialog}
         importItems={importItems}
         importSummary={importSummary}
+        importRows={importRows}
         busy={busy}
         onScopeChange={(nextScope) => { setScope(nextScope); setFolderId(null); setSourceId(null); }}
         onSelectFolder={(id) => { setFolderId(id); setSourceId(null); setScope("all"); }}
