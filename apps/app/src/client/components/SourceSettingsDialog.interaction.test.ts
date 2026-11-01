@@ -4,9 +4,11 @@ import { createElement, act } from "react";
 import { createRoot } from "react-dom/client";
 import { SourceSettingsDialog } from "./SourceSettingsDialog";
 
+type ApiClientModule = typeof import("../lib/api-client");
+
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("../lib/api-client", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../lib/api-client")>(),
+  ...await importOriginal<ApiClientModule>(),
   request,
 }));
 
