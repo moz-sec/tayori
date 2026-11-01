@@ -319,3 +319,60 @@ describe("initial fetch dispatch racing with the hourly tick", () => {
     await runRace(false);
   });
 });
+
+
+describe("source unread counts", () => {
+  it("aggregates all sources in one query using the article list retention rules", async () => {
+    const database = sqliteD1();
+    const now = 1_800_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now * 1000);
+    try {
+      database.sqlite.exec(`
+        INSERT INTO sources(id, title, normalized_url, status, last_checked_at, last_success_at, next_fetch_at, last_error_code, consecutive_failures)
+        VALUES ('active', 'Active', 'https://example.com/a', 'active', ${now - 60}, ${now - 3600}, ${now + 3600}, 'http_503', 2),
+               ('paused', 'Paused', 'https://example.com/b', 'paused', NULL, NULL, ${now}, NULL, 0),
+               ('archived', 'Archived', 'https://example.com/c', 'archived', NULL, NULL, ${now}, NULL, 0),
+               ('empty', 'Empty', 'https://example.com/d', 'active', NULL, NULL, ${now}, NULL, 0);
+        INSERT INTO boards(id, name) VALUES ('board', 'Saved');
+      `);
+      const fixtures = [
+        ['fresh', 'active', now + 1, null, 0, 0],
+        ['expired', 'active', now - 1, null, 0, 0],
+        ['boundary', 'active', now, null, 0, 0],
+        ['starred', 'active', now - 1, null, 1, 0],
+        ['later', 'active', now - 1, null, 0, 1],
+        ['board-saved', 'active', now - 1, null, 0, 0],
+        ['multi-saved', 'active', now - 1, null, 1, 1],
+        ['already-read', 'active', now + 1, now - 60, 1, 1],
+        ['paused-article', 'paused', now + 1, null, 0, 0],
+        ['archived-article', 'archived', now + 1, null, 0, 0],
+      ] as const;
+      for (const [id, source, expires, readAt, starred, later] of fixtures) {
+        database.sqlite.prepare("INSERT INTO item_keys(id, source_id, key_hash, first_seen_at) VALUES (?, ?, ?, ?)").run(id, source, id, now);
+        database.sqlite.prepare("INSERT INTO articles(id, title, url, first_seen_at, expires_at, read_at, starred, read_later) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(id, id, 'https://example.com/' + id, now, expires, readAt, starred, later);
+      }
+      for (const id of ['board-saved', 'multi-saved']) database.sqlite.prepare("INSERT INTO board_articles(board_id, article_id) VALUES ('board', ?)").run(id);
+      const response = await api.request("http://localhost/api/v1/sources", {}, { DB: database.binding } as Env);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(database.state.queries).toBe(1);
+      expect(body.data).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'active', unreadCount: 5, lastCheckedAt: new Date((now - 60) * 1000).toISOString(), lastSuccessAt: new Date((now - 3600) * 1000).toISOString(), nextFetchAt: new Date((now + 3600) * 1000).toISOString(), errorCode: 'http_503', consecutiveFailures: 2 }),
+        expect.objectContaining({ id: 'paused', unreadCount: 1, lastCheckedAt: null, lastSuccessAt: null }),
+        expect.objectContaining({ id: 'archived', unreadCount: 1 }),
+        expect.objectContaining({ id: 'empty', unreadCount: 0 }),
+      ]));
+      const articles = await api.request("http://localhost/api/v1/articles?scope=unread&sourceId=active", {}, { DB: database.binding } as Env);
+      expect((await articles.json()).data).toHaveLength(5);
+      await api.request("http://localhost/api/v1/articles/read", {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://localhost' },
+        body: JSON.stringify({ articleIds: ['fresh'], read: true }),
+      }, { DB: database.binding } as Env);
+      const updated = await api.request("http://localhost/api/v1/sources", {}, { DB: database.binding } as Env);
+      expect((await updated.json()).data.find((source: { id: string }) => source.id === 'active').unreadCount).toBe(4);
+    } finally {
+      vi.restoreAllMocks();
+      database.sqlite.close();
+    }
+  });
+});

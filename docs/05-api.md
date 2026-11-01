@@ -11,7 +11,7 @@
 | POST /folders | name, parentId | 201 |
 | PATCH /folders/:id | name, parentId, sortOrder | 200 |
 | DELETE /folders/:id | 子/購読を親に移動 | 204 |
-| GET /sources | active/paused/archivedと取得状態 | 200 |
+| GET /sources | active/paused/archived、取得状態、購読先別未読数 | 200 |
 | POST /sources | url, folderId, title optional | 201（初回取得は非同期） |
 | PATCH /sources/:id | folderId, title, status | 200 |
 | DELETE /sources/:id | アーカイブ化 | 204 |
@@ -51,3 +51,11 @@
 - APIはCache-Control: private, no-store。ログにCookie・JWT・記事本文・秘密付きURLを残さない。
 
 大容量SQLバックアップや復元をHTTP APIに実装しない。運用CLIから実施する。
+
+## 購読先の取得状況
+
+`GET /sources` は各購読先に `unreadCount` を返す。未読数は `read_at IS NULL` かつ、期限内、またはお気に入り・あとで読む・ボード保存で保持される記事を対象とし、記事一覧の未読フィルターと同じ条件で集計する。空の購読先は0件。全購読先の集計を1つのSQLで行い、フィード別の追加API呼び出しは行わない。
+
+`lastCheckedAt` は成功・失敗を含む直近の確認、`lastSuccessAt` は304（更新なし）を含む最終成功。未確認・未成功はnullになる。`errorCode` と `consecutiveFailures` はCollectorが記録した失敗を示し、成功時にリセットされる。通信例外などQueueの再配信となる失敗は、必ずしもこの状態に記録されない。
+
+`nextFetchAt` は次に収集対象となる時刻で、取得完了時刻ではない。毎時のCron、Queueの待機、予算制限等で実行は遅れ得る。停止中は値が残っていても収集対象外。`GET /status` の `lastTickAt` は全体の収集スケジューラー実行時刻で、全フィードの取得成功・完了を示さない。
