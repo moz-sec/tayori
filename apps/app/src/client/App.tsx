@@ -15,6 +15,7 @@ import type { Article, Folder, FolderDialog, ImportOutline, Page, Scope, Source 
 
 /** Owns application state and API actions, then composes the main interface. */
 export function App() {
+  const refreshButtonRef = useRef<HTMLButtonElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [scope, setScope] = useState<Scope>("all");
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -33,6 +34,8 @@ export function App() {
   const [status, setStatus] = useState<{ activeSources: number; failingSources: number; lastTickAt: string | null } | null>(null);
   const [notice, setNotice] = useState("");
   const [noticeError, setNoticeError] = useState(false);
+  const noticeErrorRef = useRef(false);
+  useLayoutEffect(() => { noticeErrorRef.current = noticeError; }, [noticeError]);
   const [importItems, setImportItems] = useState<ImportOutline[] | null>(null);
   const [importSummary, setImportSummary] = useState("");
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
@@ -70,7 +73,7 @@ export function App() {
   useLayoutEffect(() => { loadedViewRef.current = loadedView; }, [loadedView]);
 
   /** Reloads folders, feeds, account settings, status, and articles in parallel. */
-  const reload = useCallback(async (append = false, background = false) => {
+  const reload = useCallback(async (append = false, background = false, clearNotice = true) => {
     const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
     if (view !== currentViewRef.current) return;
     if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return;
@@ -110,13 +113,17 @@ export function App() {
       }
       setNextCursor(articleResult.nextCursor ?? null);
       setLoadedView(view);
-      setNotice("");
-      setNoticeError(false);
+      if (clearNotice) {
+        setNotice("");
+        setNoticeError(false);
+      }
     } catch (error) {
       if (version !== reloadVersion.current || view !== currentViewRef.current) return;
       if (background && mutationVersion !== getMutationState().version) return;
-      setNotice(humanError(error));
-      setNoticeError(true);
+      if (clearNotice || !noticeErrorRef.current) {
+        setNotice(humanError(error));
+        setNoticeError(true);
+      }
     } finally {
       if (version === reloadVersion.current && view === currentViewRef.current) {
         reloadingRef.current = false;
@@ -125,7 +132,7 @@ export function App() {
     }
   }, [scope, folderId, sourceId, nextCursor, changeSelection]);
 
-  useEffect(() => { void reload(); }, [scope, folderId, sourceId]);
+  useEffect(() => { void reload(false, false, false); }, [scope, folderId, sourceId]);
 
   /** Displays the result of an action in the page notification. */
   const tell = (message: string, error = false) => { setNotice(message); setNoticeError(error); };
@@ -194,7 +201,10 @@ export function App() {
     try {
       await request(`/folders/${encodeURIComponent(id)}/move`, { method: "POST", body: JSON.stringify({ direction }) });
       await latestReload.current();
-    } catch (error) { tell(humanError(error), true); }
+    } catch (error) {
+      await latestReload.current();
+      tell(humanError(error), true);
+    }
     finally { folderMutationRef.current = false; setFolderBusy(false); }
   };
 
@@ -276,7 +286,7 @@ export function App() {
       canSync: () => !reloadingRef.current && !markingReadRef.current && updatingArticlesRef.current === 0
         && !importingRef.current && !parsingImportRef.current && !folderMutationRef.current
         && !dialogOpenRef.current && getMutationState().pending === 0,
-      sync: () => latestReload.current(false, true),
+      sync: () => latestReload.current(false, true, false),
     });
     return () => { stop(); ++reloadVersion.current; };
   }, []);
@@ -329,7 +339,7 @@ export function App() {
               <h1 className="text-3xl font-bold tracking-tight">{heading}</h1>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <button className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
+              <button ref={refreshButtonRef} className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
               <button className="btn btn-outline btn-sm" onClick={() => void markSelectedRead()} disabled={!selectedArticleIds.length || reloading || loadedView !== currentView || markingRead || updatingArticles > 0 || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : `選択した記事を既読（${selectedArticleIds.length}件）`}</button>
               <button className="btn btn-ghost btn-sm" disabled={markingRead || !selectedArticleIds.length} onClick={() => { if (!markingReadRef.current) changeSelection([]); }}>選択を解除</button>
             </div>
@@ -383,6 +393,7 @@ export function App() {
         source={sourceDialog}
         folders={folders}
         onClose={() => setSourceDialog(null)}
+        onFallbackFocus={() => refreshButtonRef.current?.focus()}
         onCommitted={async (id, archived) => {
           if (archived) setSourceId((current) => current === id ? null : current);
           await latestReload.current();

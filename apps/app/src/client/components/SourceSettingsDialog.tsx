@@ -7,13 +7,34 @@ interface SourceSettingsDialogProps {
   source: Source;
   folders: Folder[];
   onClose: () => void;
+  onFallbackFocus?: () => void;
   onCommitted: (sourceId: string, archived: boolean) => Promise<void>;
 }
 
 /** Edits a subscription while retaining entered values and errors until the API accepts them. */
-export function SourceSettingsDialog({ source, folders, onClose, onCommitted }: SourceSettingsDialogProps) {
+export function SourceSettingsDialog({ source, folders, onClose, onCommitted, onFallbackFocus }: SourceSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  useLayoutEffect(() => { dialogRef.current?.showModal(); }, []);
+  const openerRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!openerRef.current && document.activeElement instanceof HTMLElement) {
+      openerRef.current = document.activeElement;
+    }
+    dialog?.showModal();
+    dialog?.querySelector<HTMLInputElement>('input[name="title"]')?.focus();
+    return () => { if (dialog?.open) dialog.close(); };
+  }, []);
+
+  /** Leaves the browser's modal state before restoring a usable focus target. */
+  const dismiss = () => {
+    dialogRef.current?.close();
+    onClose();
+    // A successful move/archive may remove the opener in the pending React commit.
+    requestAnimationFrame(() => {
+      if (openerRef.current?.isConnected) openerRef.current.focus();
+      else onFallbackFocus?.();
+    });
+  };
   const [title, setTitle] = useState(source.title);
   const [folderId, setFolderId] = useState(source.folderId ?? "");
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -34,7 +55,7 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted }: 
         ? { method: "DELETE" }
         : { method: "PATCH", body: JSON.stringify({ title, folderId: folderId || null }) });
       await onCommitted(source.id, archived);
-      onClose();
+      dismiss();
     } catch (cause) {
       setError(humanError(cause));
     } finally {
@@ -47,7 +68,7 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted }: 
     if (!confirmArchive) void commit(false);
   };
 
-  return <dialog ref={dialogRef} aria-modal="true" className="modal modal-open z-50" aria-labelledby="source-settings-title" onCancel={(event) => { event.preventDefault(); if (!pendingRef.current) onClose(); }}>
+  return <dialog ref={dialogRef} aria-modal="true" className="modal modal-open z-50" aria-labelledby="source-settings-title" onCancel={(event) => { event.preventDefault(); if (!pendingRef.current) dismiss(); }}>
     <div className="modal-box">
       <h2 id="source-settings-title" className="mb-4 text-lg font-bold">購読設定：{source.title}</h2>
       <p className="mb-4 break-all text-xs text-base-content/60">{source.url}</p>
@@ -56,7 +77,7 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted }: 
         <fieldset className="space-y-4" disabled={pending || confirmArchive}>
           <label className="form-control w-full">
             <span className="label-text mb-1">表示名</span>
-            <input className="input input-bordered w-full" name="title" maxLength={100} value={title} onChange={(event) => setTitle(event.currentTarget.value)} required autoFocus />
+            <input className="input input-bordered w-full" name="title" maxLength={100} value={title} onChange={(event) => setTitle(event.currentTarget.value)} required />
           </label>
           <label className="form-control w-full">
             <span className="label-text mb-1">所属フォルダ</span>
@@ -82,7 +103,7 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted }: 
           </div>
         </div> : <button className="btn btn-outline btn-error btn-sm mt-3" type="button" disabled={pending} onClick={() => { setConfirmArchive(true); setError(""); }}>購読解除…</button>}
       </section>
-      <div className="modal-action"><button className="btn btn-ghost" type="button" disabled={pending} onClick={onClose}>閉じる</button></div>
+      <div className="modal-action"><button className="btn btn-ghost" type="button" disabled={pending} onClick={() => { if (!pendingRef.current) dismiss(); }}>閉じる</button></div>
     </div>
   </dialog>;
 }

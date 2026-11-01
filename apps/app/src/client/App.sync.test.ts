@@ -152,4 +152,36 @@ describe("App foreground synchronization", () => {
     expect(container.querySelector('[aria-label="Settings for Removed"]')).toBeNull();
   });
 
+  it.each([[false, false], [true, false], [false, true]])("reloads after a failed folder move and retains its error (reload fails: %s, selected folder: %s)", async (reloadFails, selectedFolder) => {
+    folderRows = [
+      { id: "removed", parentId: null, name: "Removed", sortOrder: 0, unreadCount: 0 },
+      { id: "kept", parentId: null, name: "Kept", sortOrder: 1, unreadCount: 0 },
+    ];
+    const fetchMock = vi.mocked(fetch);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    let moveFailed = false;
+    let folderReloads = 0;
+    fetchMock.mockImplementation((...args) => {
+      const path = String(args[0]);
+      if (path.endsWith("/folders/removed/move")) {
+        moveFailed = true;
+        folderRows = folderRows.filter((folder) => folder.id !== "removed");
+        return Promise.resolve(Response.json({ error: { code: "FOLDER_NOT_FOUND" } }, { status: 404 }));
+      }
+      if (moveFailed && path.endsWith("/folders")) {
+        folderReloads++;
+        if (reloadFails) return Promise.resolve(Response.json({ error: { code: "INTERNAL_ERROR" } }, { status: 500 }));
+      }
+      return baseFetch(...args);
+    });
+    await act(async () => root.render(createElement(App)));
+    if (selectedFolder) await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === "Removed")!.click(); });
+    await act(async () => { (container.querySelector('[aria-label="Removedを下へ移動"]') as HTMLButtonElement).click(); });
+    expect(folderReloads).toBe(selectedFolder ? 2 : 1);
+    expect(container.querySelector('[aria-label="Settings for Removed"]') === null).toBe(!reloadFails);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("FOLDER_NOT_FOUND");
+    expect(container.querySelector('[role="status"]')?.textContent).not.toContain("INTERNAL_ERROR");
+    expect((container.querySelector('[aria-label="Keptを上へ移動"]') as HTMLButtonElement).disabled).toBe(!reloadFails);
+  });
+
 });
