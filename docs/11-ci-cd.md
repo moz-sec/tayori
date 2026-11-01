@@ -16,36 +16,26 @@ D1 の変更は、旧 Worker と互換性のある追加変更に限る。既存
 
 ## セキュリティ検査の役割分担
 
-依存パッケージの継続監視には Snyk Open Source の GitHub 連携を使い、ソースコードの静的解析には GitHub Actions の Semgrep CE を使う。Snyk CLI は Actions に追加せず、`SNYK_TOKEN` も登録しない。今回の構成では Snyk Code を有効にしない。
+GitHub の Dependabot alerts で依存関係の既知の脆弱性を継続監視し、Renovate で npm と GitHub Actions の更新 PR を作成する。PR とリリースの検査には、GitHub Actions 上の npm audit と Semgrep CE を使う。
 
 | 担当 | 対象・運用 |
 |---|---|
-| Snyk Open Source | npm workspacesの本番・開発依存、PRチェック、日次の継続監視、修正版がある場合の修正PR |
-| Semgrep CE | apps / packagesのソースコードをPR・リリースタグ・週次で解析 |
-| Renovate | GitHub Actionsのバージョン更新PRのみ。日本時間の月曜5時前に作成し、同時に最大5件まで |
-| npm audit | Snykの導入確認が完了するまで依存関係検査を継続 |
+| Dependabot alerts | 依存関係の既知の脆弱性を通知。Security and quality の Dependabot alerts で確認 |
+| Renovate | npm workspaces と GitHub Actions の更新 PR。通常更新は日本時間の月曜5時前、同時に最大5件。脆弱性修正は通常のスケジュールと上限を待たない |
+| npm audit | 開発依存を含む依存関係を PR・リリース・週次で検査し、high/critical を失敗とする |
+| Semgrep CE | apps / packages のソースコードを PR・リリース・週次で解析 |
 
-Snykの連携設定はSnyk側で管理する。`.snyk`ファイルは連携を有効化するものではないため、理由のある例外設定が必要になるまで追加しない。自動修正PRのマージは手動とし、通常のCIを通す。
+Renovate の PR は自動マージせず、CI を確認して手動でマージする。GitHub と Snyk では脆弱性データや静的解析ルールの範囲が異なる。GitHub の Dependabot alerts は SHA 固定の GitHub Actions にはアラートを生成しないため、Actions の更新内容は別途確認する。
 
-## Renovate の導入
+## Renovate の導入と Snyk からの移行
 
-1. [Renovate GitHub App](https://github.com/apps/renovate) を `moz-sec/tayori` にインストールする。
-2. Renovate のオンボーディングと設定の読み込みを確認し、GitHub Actions の更新 PR が作成されることを確認する。
-3. 更新 PR のコミット SHA と CI の結果を確認して手動でマージする。
+1. [Renovate GitHub App](https://github.com/apps/renovate) を `moz-sec/tayori` にインストールし、Dependabot alerts の読み取り権限を確認する。
+2. GitHub で Dependency graph と Dependabot alerts が有効であることを確認する。Security and quality の Dependabot alerts で npm の直接・間接依存を確認する。
+3. Renovate が設定を読み込み、npm workspaces と GitHub Actions の更新を認識することを確認する。修正可能な脆弱性アラートがある場合は修正 PR を確認する。対象がない場合は、将来のアラートで動作を確認する。
+4. GitHub Actions 上で npm audit と Semgrep が PR・リリース時に実行されることを確認する。Snyk Code と Semgrep の検出範囲が同一ではないことを踏まえて、既存の Snyk の指摘を確認する。
+5. 上記を確認してから、重複 PR を避けるため GitHub の Dependabot security updates を無効にし、Dependabot alerts は有効のままにする。Snyk 側の tayori の監視・修正 PR・Code analysis を停止し、必要に応じて GitHub 連携のアクセスを整理する。
 
-`renovate.json` では GitHub Actions のみを更新対象とする。npm 依存関係の監視と修正 PR は引き続き Snyk が担当する。Dependabot のバージョン更新設定は削除しており、セキュリティアラートの設定とは別に管理する。Renovate App が利用可能になるまで GitHub Actions の自動更新 PR は作成されない。
-
-## Snyk接続手順と移行条件
-
-1. Snykにログインし、使用するOrganizationでGitHub連携を設定する。リポジトリを選択できる方式では `moz-sec/tayori` のみにアクセスを限定する。表示される権限・契約条件は接続時に確認する。
-2. `moz-sec/tayori` のmainをインポートする。ルートのpackage.json / package-lock.jsonに加え、apps/app、apps/collector、packages/sharedのworkspace依存が検査対象に含まれることを結果で確認する。開発依存も検査対象に含める。
-3. Open SourceのPRチェックを有効化し、high/criticalを失敗基準とする。既存の脆弱性も確認対象とし、新規脆弱性だけの判定との違いに注意する。Snyk CodeのCode Analysisチェックは有効化しない。
-4. 定期検査を日次に設定し、脆弱性通知と自動修正PRを有効化する。通常の依存アップグレードPRは当初無効とする。利用プランの実行枠を確認する。
-5. 初回スキャン結果で依存の検出範囲を確認し、PR上にSnykのチェックが出ることを確認する。既存のundiciの指摘についても検出・評価を確認する。
-6. GitHub上で実際に表示されたSnykチェック名と発行元を確認し、利用可能であればmainの必須チェックに追加する。検出がないため成功した状態と、未実行・対象なしを区別する。
-7. ここまで完了した後、別変更でSecurityのDependency auditジョブとその必須チェック指定を削除する。連携前に削除しない。
-
-接続状況: Snyk にはログインしていない。GitHub の `main` にある check runs とリポジトリの Webhook からは、Snyk が連携済みだと確認できる情報を得られていない。ただし、この情報だけでは未接続と断定できないため、Snyk 側の設定と初回 PR の結果で確認する。
+Dependabot の通常のバージョン更新設定は削除する。Renovate App が利用可能になるまでは通常更新 PR が作成されない。Dependabot security updates は設定ファイルの削除だけでは無効にならないため、移行確認後に設定画面で別途停止する。
 
 ## 実行条件と合格基準
 
@@ -53,7 +43,7 @@ Snykの連携設定はSnyk側で管理する。`.snyk`ファイルは連携を�
 |---|---|---|
 | CI / Test and build | main向けPR、手動 | npm ci、型チェック、既存テスト、両Workerのビルドが成功 |
 | Preview | mainへのpush | 型チェック、テスト、collectorのビルド後、プレビューD1 migration、app Previewと専用collector Workerの配備が成功 |
-| Security / Dependency audit（移行中） | 同上、リリースからの呼び出し、および毎週月曜09:23 JST | 開発依存を含むnpm auditでhigh/criticalがない |
+| Security / Dependency audit | 同上、リリースからの呼び出し、および毎週月曜09:23 JST | 開発依存を含むnpm auditでhigh/criticalがない |
 | Security / Semgrep | 同上、リリースからの呼び出し、および毎週月曜09:23 JST | p/defaultの静的解析で検出がなく、解析エラーもない |
 | Release | vX.Y.Zタグのpush | main所属確認、Security、型チェック、テスト、ビルド成功後に本番へ反映 |
 
@@ -63,7 +53,6 @@ Node.js 24、Ubuntu 24.04を使用する。インストールはルートのpack
 
 - GITHUB_TOKENはcontents: readのみ。checkout後に認証情報を残さない。
 - pull_requestを使用し、pull_request_targetでPRのコードを実行しない。PRのCIにSecretsは不要。本番のSecretsはproduction Environmentにのみ登録する。
-- SnykにはGitHub連携を通じてリポジトリへのアクセスを付与する。Actionsの権限とは別にSnyk側の連携権限を管理する。
 - Actionsは完全なコミットSHAで固定し、Renovateで週次の更新PRを作成する。自動マージは行わず、CIを確認して手動でマージする。
 - Semgrep CEはバージョンを固定。Registryのp/defaultルールは最新を取得するため、判定は更新される。metricsとバージョン確認を無効化し、ソースや結果をSemgrepプラットフォームへアップロードする設定は使わない。
 - npm auditは依存情報をnpm Registryへ送信する。取得障害や解析エラーもジョブ失敗として扱い、黙って検査を省略しない。
@@ -172,7 +161,7 @@ git tag -a v0.1.0 -m 'Release v0.1.0'
 git push origin v0.1.0
 ```
 
-Securityの指摘が残っている間はリリースも停止する。Snyk移行後にnpm auditを外す場合は、mainにSnyk必須チェックとPR経由の更新制限が適用されていることを確認する。SnykのPR検査はタグでは再実行されない。
+Securityの指摘が残っている間はリリースも停止する。npm audit と Semgrep はリリース時にも実行する。
 
 ## 初回のローカル検証（2026-09-30）
 
@@ -182,4 +171,4 @@ Securityの指摘が残っている間はリリースも停止する。Snyk移�
 - Semgrepのローカル実行は環境作成の権限制限と追加許可の見送りにより未検証。GitHub Actions上での実行も未確認。
 - CD追加後、3ワークフローの構文検証、型チェック、8テスト、両Workerのビルドに成功。タグ名とmain所属判定は一時Gitリポジトリで正常系・拒否系の6ケースを確認。本番の認証情報登録・タグpush・実デプロイは未実施。
 
-参考: [SemgrepのCI設定](https://semgrep.dev/docs/semgrep-ci/sample-ci-configs)、[setup-node](https://github.com/actions/setup-node)、[Snyk GitHub連携](https://github.com/snyk/user-docs/blob/main/developer-tools/scm-integrations/organization-level-integrations/github.md)、[Snyk PRチェック](https://learn.snyk.io/lesson/checking-your-code-with-pr-checks/)。
+参考: [SemgrepのCI設定](https://semgrep.dev/docs/semgrep-ci/sample-ci-configs)、[setup-node](https://github.com/actions/setup-node)、[Dependabot alerts](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependabot-alerts)、[Renovate vulnerability alerts](https://docs.renovatebot.com/configuration-options/#vulnerabilityalerts)。

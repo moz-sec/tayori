@@ -18,7 +18,7 @@ Tayori は、購読先から届く情報をフォルダに整理して読む個�
 | [開発・テスト計画](./08-development.md)  | 実装順序、構成案、検証項目、リリース手順 |
 | [設計判断](./09-decisions.md)            | 採用理由、保留事項、将来拡張             |
 | [公式資料](./10-references.md)           | 制限値・機能の確認元                     |
-| [CI/CD設計](./11-ci-cd.md)              | GitHub Actionsのテスト、Semgrep、Snyk連携 |
+| [CI/CD設計](./11-ci-cd.md)              | GitHub Actionsのテスト、Semgrep、依存関係の監視 |
 
 図は各 Markdown 文書内に Mermaid で記載しています。編集用の原本は[diagrams](diagrams/README.md)にあります。基本的な API、UI、Queue による収集処理は実装済みですが、実環境での運用、負荷、セキュリティの検証はこれからです。
 
