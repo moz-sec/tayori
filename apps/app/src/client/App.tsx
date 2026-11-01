@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { LuPanelLeftClose, LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
 import { ArticleList } from "./components/ArticleList";
 import { Sidebar } from "./components/Sidebar";
@@ -7,6 +7,7 @@ import { parseOpmlFile } from "./lib/opml";
 import { importOpmlRows, summarizeImport, type ImportRow } from "./lib/opml-import";
 import { humanError } from "./lib/errors";
 import { formatDate } from "./lib/format";
+import { markArticlesRead, type MarkReadResult } from "./lib/mark-read";
 import type { Article, Folder, FolderDialog, ImportOutline, Page, Scope, Source } from "./types";
 
 /** Owns application state and API actions, then composes the main interface. */
@@ -31,9 +32,41 @@ export function App() {
   const parsingImportRef = useRef(false);
   const importFileGenerationRef = useRef(0);
   const [busy, setBusy] = useState(false);
+  const [markingRead, setMarkingRead] = useState(false);
+  const markingReadRef = useRef(false);
+  const [selectedArticleIds, setSelectedArticleIds] = useState<string[]>([]);
+  const selectedArticleIdsRef = useRef<string[]>([]);
+  const changeSelection = useCallback((ids: string[]) => {
+    selectedArticleIdsRef.current = ids;
+    setSelectedArticleIds(ids);
+  }, []);
+  const [updatingArticles, setUpdatingArticles] = useState(0);
+  const updatingArticlesRef = useRef(0);
+  const [markReadResult, setMarkReadResult] = useState<MarkReadResult | null>(null);
+  const [reloading, setReloading] = useState(false);
+  const reloadingRef = useRef(false);
+  const [loadedView, setLoadedView] = useState<string | null>(null);
+  const loadedViewRef = useRef<string | null>(null);
+  const reloadVersion = useRef(0);
+  const currentView = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
+  const currentViewRef = useRef(currentView);
+  useLayoutEffect(() => {
+    currentViewRef.current = currentView;
+    changeSelection([]);
+    ++reloadVersion.current;
+    reloadingRef.current = true;
+    setReloading(true);
+  }, [currentView, changeSelection]);
+  useLayoutEffect(() => { loadedViewRef.current = loadedView; }, [loadedView]);
 
   /** Reloads folders, feeds, account settings, status, and articles in parallel. */
   const reload = useCallback(async (append = false) => {
+    const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
+    if (view !== currentViewRef.current) return;
+    if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return;
+    const version = ++reloadVersion.current;
+    reloadingRef.current = true;
+    setReloading(true);
     try {
       const query = new URLSearchParams({ scope, limit: "50" });
       if (folderId) query.set("folderId", folderId);
@@ -46,19 +79,31 @@ export function App() {
         request<Page<{ activeSources: number; failingSources: number; lastTickAt: string | null }>>("/status"),
         request<Page<Article[]>>(`/articles?${query}`),
       ]);
+      if (version !== reloadVersion.current || view !== currentViewRef.current) return;
       setFolders(folderResult.data);
       setSources(sourceResult.data);
       setRetentionDays(me.data.retentionDays);
       setStatus(statusResult.data);
       setArticles((current) => append ? [...current, ...articleResult.data] : articleResult.data);
+      if (!append) {
+        const visibleIds = new Set(articleResult.data.map((article) => article.id));
+        changeSelection(selectedArticleIdsRef.current.filter((id) => visibleIds.has(id)));
+      }
       setNextCursor(articleResult.nextCursor ?? null);
+      setLoadedView(view);
       setNotice("");
       setNoticeError(false);
     } catch (error) {
+      if (version !== reloadVersion.current || view !== currentViewRef.current) return;
       setNotice(humanError(error));
       setNoticeError(true);
+    } finally {
+      if (version === reloadVersion.current && view === currentViewRef.current) {
+        reloadingRef.current = false;
+        setReloading(false);
+      }
     }
-  }, [scope, folderId, sourceId, nextCursor]);
+  }, [scope, folderId, sourceId, nextCursor, changeSelection]);
 
   useEffect(() => { void reload(); }, [scope, folderId, sourceId]);
 
@@ -66,13 +111,20 @@ export function App() {
   const tell = (message: string, error = false) => { setNotice(message); setNoticeError(error); };
   /** Updates an article's read or saved state, then reloads the list. */
   const updateArticle = async (article: Article, changes: Record<string, unknown>, message: string) => {
+    if (markingReadRef.current) return;
+    updatingArticlesRef.current++;
+    setUpdatingArticles((count) => count + 1);
     try {
       await request(`/articles/${encodeURIComponent(article.id)}`, {
         method: "PATCH", body: JSON.stringify({ ...changes, expectedVersion: article.version }),
       });
       tell(message);
-      await reload();
+      await latestReload.current();
     } catch (error) { tell(humanError(error), true); }
+    finally {
+      updatingArticlesRef.current--;
+      setUpdatingArticles((count) => count - 1);
+    }
   };
 
   /** Creates or updates a folder from the folder dialog form. */
@@ -162,13 +214,38 @@ export function App() {
     }
   };
 
-  /** Marks the first 50 currently displayed articles as read. */
-  const markVisibleRead = async () => {
-    if (!articles.length) return;
+  const latestReload = useRef(reload);
+  useLayoutEffect(() => { latestReload.current = reload; }, [reload]);
+
+  /** Updates selection only for the current loaded view, never during a bulk operation. */
+  const toggleArticleSelection = (id: string) => {
+    if (markingReadRef.current || reloadingRef.current || loadedViewRef.current !== currentViewRef.current) return;
+    if (!articles.some((article) => article.id === id)) return;
+    const ids = selectedArticleIdsRef.current;
+    changeSelection(ids.includes(id) ? ids.filter((selectedId) => selectedId !== id) : [...ids, id]);
+  };
+
+  /** Snapshots only selected articles, retaining unconfirmed IDs independently of later selections. */
+  const markSelectedRead = async (retry = false) => {
+    if (markingReadRef.current || updatingArticlesRef.current > 0) return;
+    if (!retry && (reloadingRef.current || loadedViewRef.current !== currentViewRef.current)) return;
+    const selectedIds = new Set(selectedArticleIdsRef.current);
+    const ids = retry ? markReadResult?.remainingIds ?? [] : [...new Set(articles.filter((article) => selectedIds.has(article.id)).map((article) => article.id))];
+    if (!ids.length) return;
+    markingReadRef.current = true;
+    setMarkingRead(true);
+    const previousCompleted = retry ? markReadResult?.completed ?? 0 : 0;
+    const previousUpdated = retry ? markReadResult?.updated ?? 0 : 0;
     try {
-      await request("/articles/read", { method: "POST", body: JSON.stringify({ articleIds: articles.slice(0, 50).map((article) => article.id), read: true }) });
-      tell("表示中の記事を既読にしました"); await reload();
-    } catch (error) { tell(humanError(error), true); }
+      const result = await markArticlesRead(ids);
+      const completedIds = new Set(ids.slice(0, result.completed));
+      changeSelection(selectedArticleIdsRef.current.filter((id) => !completedIds.has(id)));
+      setMarkReadResult({ ...result, completed: previousCompleted + result.completed, updated: previousUpdated + result.updated });
+      await latestReload.current();
+    } finally {
+      markingReadRef.current = false;
+      setMarkingRead(false);
+    }
   };
 
   const heading = sourceId ? sources.find((item) => item.id === sourceId)?.title
@@ -187,15 +264,25 @@ export function App() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">{heading}</h1>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
-              <button className="btn btn-outline btn-sm" onClick={() => void markVisibleRead()} disabled={!articles.length}>表示分を既読</button>
+              <button className="btn btn-outline btn-sm" onClick={() => void markSelectedRead()} disabled={!selectedArticleIds.length || reloading || loadedView !== currentView || markingRead || updatingArticles > 0 || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : `選択した記事を既読（${selectedArticleIds.length}件）`}</button>
+              <button className="btn btn-ghost btn-sm" disabled={markingRead || !selectedArticleIds.length} onClick={() => { if (!markingReadRef.current) changeSelection([]); }}>選択を解除</button>
             </div>
           </div>
 
           {notice && <div role="status" className={`alert mb-5 ${noticeError ? "alert-error" : "alert-info"}`}><span>{notice}</span></div>}
+          {markReadResult && <div role="status" className={`alert mb-5 ${markReadResult.remainingIds.length ? "alert-error" : "alert-info"}`}>
+            <span>選択した記事のうち{markReadResult.updated}件を既読にしました。{markReadResult.completed > markReadResult.updated && `削除済みなどの${markReadResult.completed - markReadResult.updated}件は更新対象外でした。`}{markReadResult.remainingIds.length > 0 && `前回選択した記事（現在の一覧にない記事も含む）のうち、残り${markReadResult.remainingIds.length}件は処理を確認できていません。${humanError(markReadResult.error)}`}</span>
+            {markReadResult.remainingIds.length > 0
+              ? <div className="flex flex-wrap gap-2">
+                <button className="btn btn-sm" disabled={markingRead || updatingArticles > 0} onClick={() => void markSelectedRead(true)}>残り{markReadResult.remainingIds.length}件を再試行</button>
+                <button className="btn btn-ghost btn-sm" disabled={markingRead} onClick={() => { if (!markingReadRef.current) setMarkReadResult(null); }}>残りの処理を取り消す</button>
+              </div>
+              : <button className="btn btn-ghost btn-sm" onClick={() => setMarkReadResult(null)}>閉じる</button>}
+          </div>}
 
-          <ArticleList articles={articles} nextCursor={nextCursor} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
+          <ArticleList articles={articles} nextCursor={nextCursor} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} updatesDisabled={markingRead} selectedArticleIds={selectedArticleIds} selectionDisabled={reloading || markingRead || loadedView !== currentView} onToggleSelection={toggleArticleSelection} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
         </main>
       </div>
 
