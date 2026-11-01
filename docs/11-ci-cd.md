@@ -21,11 +21,11 @@ GitHub の Dependabot alerts で依存関係の既知の脆弱性を継続監視
 | 担当 | 対象・運用 |
 |---|---|
 | Dependabot alerts | 依存関係の既知の脆弱性を通知。Security and quality の Dependabot alerts で確認 |
-| Renovate | npm workspaces と GitHub Actions の更新 PR。通常更新は日本時間の土曜8時台、同時に最大5件。脆弱性修正は通常のスケジュールと上限を待たない |
+| Renovate | npm workspaces と GitHub Actions の更新 PR。通常更新は日本時間の土曜8時から翌0時まで、同時に最大5件。脆弱性修正は通常のスケジュールと上限を待たない |
 | npm audit | 開発依存を含む依存関係を PR・リリース・週次で検査し、high/critical を失敗とする |
 | Semgrep CE | apps / packages のソースコードを PR・リリース・週次で解析 |
 
-Renovate の PR は自動マージせず、CI を確認して手動でマージする。GitHub と Snyk では脆弱性データや静的解析ルールの範囲が異なる。GitHub の Dependabot alerts は SHA 固定の GitHub Actions にはアラートを生成しないため、Actions の更新内容は別途確認する。
+Community Cloud は通常4時間ごとに実行されるため、通常更新の時間帯を広く設ける。実際の PR 作成時刻は実行状況によって変わり、毎週の作成を保証するものではない。Renovate の PR は自動マージせず、CI を確認して手動でマージする。GitHub と Snyk では脆弱性データや静的解析ルールの範囲が異なる。GitHub の Dependabot alerts は SHA 固定の GitHub Actions にはアラートを生成しないため、Actions の更新内容は別途確認する。
 
 ## Renovate の導入と Snyk からの移行
 
