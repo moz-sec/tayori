@@ -13,15 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  actions-lock:
+    name: Workflow lockfile
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install workflow lockfile verifier
+        run: gh extension install github/gh-actions-lock --pin v0.4.0
+      - name: Verify action dependencies
+        run: gh actions-lock --verify
+
   test:
     name: Test and build
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
