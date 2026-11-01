@@ -34,6 +34,12 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [markingRead, setMarkingRead] = useState(false);
   const markingReadRef = useRef(false);
+  const [selectedArticleIds, setSelectedArticleIds] = useState<string[]>([]);
+  const selectedArticleIdsRef = useRef<string[]>([]);
+  const changeSelection = useCallback((ids: string[]) => {
+    selectedArticleIdsRef.current = ids;
+    setSelectedArticleIds(ids);
+  }, []);
   const [updatingArticles, setUpdatingArticles] = useState(0);
   const updatingArticlesRef = useRef(0);
   const [markReadResult, setMarkReadResult] = useState<MarkReadResult | null>(null);
@@ -46,10 +52,11 @@ export function App() {
   const currentViewRef = useRef(currentView);
   useLayoutEffect(() => {
     currentViewRef.current = currentView;
+    changeSelection([]);
     ++reloadVersion.current;
     reloadingRef.current = true;
     setReloading(true);
-  }, [currentView]);
+  }, [currentView, changeSelection]);
   useLayoutEffect(() => { loadedViewRef.current = loadedView; }, [loadedView]);
 
   /** Reloads folders, feeds, account settings, status, and articles in parallel. */
@@ -78,6 +85,10 @@ export function App() {
       setRetentionDays(me.data.retentionDays);
       setStatus(statusResult.data);
       setArticles((current) => append ? [...current, ...articleResult.data] : articleResult.data);
+      if (!append) {
+        const visibleIds = new Set(articleResult.data.map((article) => article.id));
+        changeSelection(selectedArticleIdsRef.current.filter((id) => visibleIds.has(id)));
+      }
       setNextCursor(articleResult.nextCursor ?? null);
       setLoadedView(view);
       setNotice("");
@@ -92,7 +103,7 @@ export function App() {
         setReloading(false);
       }
     }
-  }, [scope, folderId, sourceId, nextCursor]);
+  }, [scope, folderId, sourceId, nextCursor, changeSelection]);
 
   useEffect(() => { void reload(); }, [scope, folderId, sourceId]);
 
@@ -108,7 +119,7 @@ export function App() {
         method: "PATCH", body: JSON.stringify({ ...changes, expectedVersion: article.version }),
       });
       tell(message);
-      await reload();
+      await latestReload.current();
     } catch (error) { tell(humanError(error), true); }
     finally {
       updatingArticlesRef.current--;
@@ -206,11 +217,20 @@ export function App() {
   const latestReload = useRef(reload);
   useLayoutEffect(() => { latestReload.current = reload; }, [reload]);
 
-  /** Uses a fixed snapshot, retaining unconfirmed IDs independently of pagination. */
-  const markVisibleRead = async (retry = false) => {
+  /** Updates selection only for the current loaded view, never during a bulk operation. */
+  const toggleArticleSelection = (id: string) => {
+    if (markingReadRef.current || reloadingRef.current || loadedViewRef.current !== currentViewRef.current) return;
+    if (!articles.some((article) => article.id === id)) return;
+    const ids = selectedArticleIdsRef.current;
+    changeSelection(ids.includes(id) ? ids.filter((selectedId) => selectedId !== id) : [...ids, id]);
+  };
+
+  /** Snapshots only selected articles, retaining unconfirmed IDs independently of later selections. */
+  const markSelectedRead = async (retry = false) => {
     if (markingReadRef.current || updatingArticlesRef.current > 0) return;
     if (!retry && (reloadingRef.current || loadedViewRef.current !== currentViewRef.current)) return;
-    const ids = retry ? markReadResult?.remainingIds ?? [] : articles.map((article) => article.id);
+    const selectedIds = new Set(selectedArticleIdsRef.current);
+    const ids = retry ? markReadResult?.remainingIds ?? [] : [...new Set(articles.filter((article) => selectedIds.has(article.id)).map((article) => article.id))];
     if (!ids.length) return;
     markingReadRef.current = true;
     setMarkingRead(true);
@@ -218,6 +238,8 @@ export function App() {
     const previousUpdated = retry ? markReadResult?.updated ?? 0 : 0;
     try {
       const result = await markArticlesRead(ids);
+      const completedIds = new Set(ids.slice(0, result.completed));
+      changeSelection(selectedArticleIdsRef.current.filter((id) => !completedIds.has(id)));
       setMarkReadResult({ ...result, completed: previousCompleted + result.completed, updated: previousUpdated + result.updated });
       await latestReload.current();
     } finally {
@@ -242,24 +264,25 @@ export function App() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">{heading}</h1>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
-              <button className="btn btn-outline btn-sm" onClick={() => void markVisibleRead()} disabled={!articles.length || reloading || loadedView !== currentView || markingRead || updatingArticles > 0 || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : "表示分を既読"}</button>
+              <button className="btn btn-outline btn-sm" onClick={() => void markSelectedRead()} disabled={!selectedArticleIds.length || reloading || loadedView !== currentView || markingRead || updatingArticles > 0 || !!markReadResult?.remainingIds.length}>{markingRead ? "既読にしています…" : `選択した記事を既読（${selectedArticleIds.length}件）`}</button>
+              <button className="btn btn-ghost btn-sm" disabled={markingRead || !selectedArticleIds.length} onClick={() => { if (!markingReadRef.current) changeSelection([]); }}>選択を解除</button>
             </div>
           </div>
 
           {notice && <div role="status" className={`alert mb-5 ${noticeError ? "alert-error" : "alert-info"}`}><span>{notice}</span></div>}
           {markReadResult && <div role="status" className={`alert mb-5 ${markReadResult.remainingIds.length ? "alert-error" : "alert-info"}`}>
-            <span>{markReadResult.updated}件を既読にしました。{markReadResult.completed > markReadResult.updated && `削除済みなどの${markReadResult.completed - markReadResult.updated}件は更新対象外でした。`}{markReadResult.remainingIds.length > 0 && `操作開始時の記事のうち、残り${markReadResult.remainingIds.length}件は処理を確認できていません。${humanError(markReadResult.error)}`}</span>
+            <span>選択した記事のうち{markReadResult.updated}件を既読にしました。{markReadResult.completed > markReadResult.updated && `削除済みなどの${markReadResult.completed - markReadResult.updated}件は更新対象外でした。`}{markReadResult.remainingIds.length > 0 && `前回選択した記事（現在の一覧にない記事も含む）のうち、残り${markReadResult.remainingIds.length}件は処理を確認できていません。${humanError(markReadResult.error)}`}</span>
             {markReadResult.remainingIds.length > 0
               ? <div className="flex flex-wrap gap-2">
-                <button className="btn btn-sm" disabled={markingRead || updatingArticles > 0} onClick={() => void markVisibleRead(true)}>残り{markReadResult.remainingIds.length}件を再試行</button>
+                <button className="btn btn-sm" disabled={markingRead || updatingArticles > 0} onClick={() => void markSelectedRead(true)}>残り{markReadResult.remainingIds.length}件を再試行</button>
                 <button className="btn btn-ghost btn-sm" disabled={markingRead} onClick={() => { if (!markingReadRef.current) setMarkReadResult(null); }}>残りの処理を取り消す</button>
               </div>
               : <button className="btn btn-ghost btn-sm" onClick={() => setMarkReadResult(null)}>閉じる</button>}
           </div>}
 
-          <ArticleList articles={articles} nextCursor={nextCursor} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} updatesDisabled={markingRead} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
+          <ArticleList articles={articles} nextCursor={nextCursor} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} updatesDisabled={markingRead} selectedArticleIds={selectedArticleIds} selectionDisabled={reloading || markingRead || loadedView !== currentView} onToggleSelection={toggleArticleSelection} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
         </main>
       </div>
 

@@ -7,7 +7,7 @@ export interface MarkReadResult {
   error?: unknown;
 }
 
-/** Stops at the first failed batch so only unconfirmed IDs need to be retried. */
+/** Marks a snapshot of selected IDs, stopping at the first failed batch so only unconfirmed IDs need retry. */
 export async function markArticlesRead(
   articleIds: readonly string[],
   send: (ids: string[]) => Promise<{ data: { updated: number } }> = (ids) => request("/articles/read", {
