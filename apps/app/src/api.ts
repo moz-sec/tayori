@@ -1,7 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
-import { DEFAULT_RETENTION_DAYS, MAX_QUEUE_OPERATIONS_PER_DAY, normalizeFeedUrl } from "@tayori/shared";
+import { DEFAULT_RETENTION_DAYS, normalizeFeedUrl } from "@tayori/shared";
 import type { QueueMessage } from "@tayori/shared";
+import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
 import { authenticate } from "./auth";
 import { registerApiOperations } from "./api-docs";
 
@@ -9,8 +10,6 @@ type AppEnv = {
   Bindings: Env;
   Variables: { principal: string };
 };
-
-const FETCH_QUEUE_OPERATION_RESERVATION = 4;
 
 type FolderRow = {
   id: string;
@@ -507,11 +506,8 @@ async function enqueueInitialFetch(
          )
        ON CONFLICT DO NOTHING`,
     ).bind(jobId, now, sourceId, generation).run();
-    if (!inserted.meta.changes || !await reserveQueueOperation(db, now)) return;
-
-    await jobs.send({ schemaVersion: 1, type: "fetch", jobId });
-    await db.prepare("UPDATE fetch_jobs SET status = 'sent', lease_until = ? WHERE id = ? AND status = 'pending'")
-      .bind(now + 3_600, jobId).run();
+    if (!inserted.meta.changes) return;
+    await dispatchFetchJob(db, jobs, jobId, now);
   } catch (error) {
     // The source remains due for the hourly Collector tick even if initial queueing fails.
     console.error(JSON.stringify({
@@ -521,18 +517,6 @@ async function enqueueInitialFetch(
       message: error instanceof Error ? error.message : "Unknown error",
     }));
   }
-}
-
-/** Reserves the shared daily Queue-operation budget before an initial job is sent. */
-async function reserveQueueOperation(db: D1Database, now: number): Promise<boolean> {
-  const day = new Date(now * 1000).toISOString().slice(0, 10);
-  const row = await db.prepare(
-    `INSERT INTO daily_usage(day_utc, reserved_queue_ops) VALUES (?, ?)
-     ON CONFLICT(day_utc) DO UPDATE SET reserved_queue_ops = daily_usage.reserved_queue_ops + excluded.reserved_queue_ops
-     WHERE daily_usage.reserved_queue_ops + excluded.reserved_queue_ops <= ?
-     RETURNING day_utc`,
-  ).bind(day, FETCH_QUEUE_OPERATION_RESERVATION, MAX_QUEUE_OPERATIONS_PER_DAY).first<{ day_utc: string }>();
-  return row !== null;
 }
 
 function isNormalizedUrlConflict(error: unknown): boolean {

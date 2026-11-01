@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { QueueMessage } from "@tayori/shared";
 import { api } from "./api";
+import collector from "../../collector/src/index";
+import { sqliteD1 } from "../../collector/src/test/sqlite-d1";
 
 function mockDatabase(options: { listError?: Error; insertError?: Error } = {}): D1Database {
   return {
@@ -91,8 +93,13 @@ function sourceCreationDatabase(options: { budgetAvailable?: boolean; activeFetc
             jobs.push({ id: String(values[0]), status: "pending" });
           }
           if (sql.startsWith("UPDATE fetch_jobs SET status = 'sent'")) {
-            const job = jobs.find((item) => item.id === values[1]);
-            if (job) job.status = "sent";
+            const job = jobs.find((item) => item.id === values[1] && item.status === "pending");
+            if (!job) return { success: true, meta: { changes: 0 } };
+            job.status = "sent";
+          }
+          if (sql.startsWith("UPDATE fetch_jobs SET status = 'pending'")) {
+            const job = jobs.find((item) => item.id === values[0] && item.status === "sent");
+            if (job) job.status = "pending";
           }
           return { success: true, meta: { changes: 1 } };
         }),
@@ -182,5 +189,85 @@ describe("article reads", () => {
     } finally {
       fetcher.mockRestore();
     }
+  });
+});
+
+
+describe("initial fetch dispatch racing with the hourly tick", () => {
+  async function runRace(cronWins: boolean) {
+    const database = sqliteD1();
+    const now = Date.parse("2026-10-25T01:00:08Z");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const messages: QueueMessage[] = [];
+    let interleaved = false;
+    const tick = async () => {
+      database.state.queries = 0;
+      await collector.queue({
+        queue: "test-jobs", messages: [{
+          id: "tick", timestamp: new Date(now), attempts: 1,
+          body: { schemaVersion: 1, type: "tick", scheduledAt: now - 8_000 }, ack() {}, retry() {},
+        }], ackAll() {}, retryAll() {},
+        metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } },
+      }, env);
+    };
+    const env = {
+      DB: database.binding,
+      JOBS: {
+        send: vi.fn(async (message: QueueMessage) => {
+          messages.push(message);
+          if (!cronWins && message.type === "fetch" && !interleaved) {
+            interleaved = true;
+            await tick();
+          }
+          return { metadata: { metrics: { backlogCount: messages.length, backlogBytes: 0 } } };
+        }),
+        sendBatch: vi.fn(), metrics: vi.fn(),
+      },
+    };
+    if (cronWins) {
+      // Pause the App immediately before its claim; the tick sends the pending job first.
+      const prepare = database.binding.prepare.bind(database.binding);
+      database.binding.prepare = (sql: string) => {
+        const statement = prepare(sql);
+        if (!sql.startsWith("UPDATE fetch_jobs SET status = 'sent'")) return statement;
+        const bind = statement.bind.bind(statement);
+        statement.bind = (...values: unknown[]) => {
+          const bound = bind(...values);
+          const run = bound.run.bind(bound);
+          bound.run = async () => {
+            if (!interleaved) {
+              interleaved = true;
+              await tick();
+            }
+            return run();
+          };
+          return bound;
+        };
+        return statement;
+      };
+    }
+    try {
+      const response = await api.request("http://localhost/api/v1/sources", {
+        method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+        body: JSON.stringify({ url: "https://example.com/feed.xml" }),
+      }, env as unknown as Env);
+      expect(response.status).toBe(201);
+      expect(messages.filter((message) => message.type === "fetch")).toHaveLength(1);
+      expect(database.sqlite.prepare("SELECT status FROM fetch_jobs").all()).toEqual([{ status: "sent" }]);
+      // Each fetch reserves four operations exactly once; ticks have their own reservations.
+      expect(database.sqlite.prepare("SELECT reserved_queue_ops FROM daily_usage").get()?.reserved_queue_ops)
+        .toBe(cronWins ? 12 : 8);
+    } finally {
+      database.sqlite.close();
+      clock.mockRestore();
+    }
+  }
+
+  it("does not dispatch or reserve twice when Cron claims the initial job first", async () => {
+    await runRace(true);
+  });
+
+  it("does not dispatch or reserve twice when the App is already sending the initial job", async () => {
+    await runRace(false);
   });
 });

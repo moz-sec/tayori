@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueueMessage } from "@tayori/shared";
+import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
 import worker from "./index";
 import { sqliteD1 } from "./test/sqlite-d1";
 
@@ -248,6 +249,43 @@ describe("hourly RSS collection", () => {
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + HOUR });
     await drain();
     expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles").get()?.n).toBe(1);
+  });
+
+  it("keeps a consumer's completed state when it runs before dispatch returns", async () => {
+    source("fast-consumer");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(1))));
+    vi.mocked(env.JOBS.send).mockImplementation(async (message) => {
+      if (message.type === "fetch") await deliver(message);
+      return { metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } } };
+    });
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
+    expect(database.sqlite.prepare("SELECT status FROM fetch_jobs").get()?.status).toBe("done");
+    expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles").get()?.n).toBe(1);
+  });
+
+  it("recovers an abandoned pre-send claim after its delivery lease expires", async () => {
+    source("abandoned");
+    database.sqlite.prepare(
+      "INSERT INTO fetch_jobs(id, source_id, generation, status, lease_until, created_at) VALUES ('abandoned-job', 'abandoned', 1, 'sent', ?, ?)",
+    ).run(ROUND / 1000 + 3_600, ROUND / 1000);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(1))));
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
+    expect(queued).toHaveLength(0);
+    now += HOUR;
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + HOUR });
+    await drain();
+    expect(database.sqlite.prepare("SELECT status FROM fetch_jobs").get()?.status).toBe("done");
+  });
+
+  it("releases a claim when budget is exhausted without sending or stranding the job", async () => {
+    source("pending-budget");
+    database.sqlite.exec("INSERT INTO fetch_jobs(id, source_id, generation, status) VALUES ('budget-job', 'pending-budget', 1, 'pending')");
+    database.sqlite.exec("INSERT INTO daily_usage(day_utc, reserved_queue_ops) VALUES ('2026-10-18', 8000)");
+    const dispatched = await dispatchFetchJob(env.DB, env.JOBS, "budget-job", now / 1000);
+    expect(dispatched).toBe(false);
+    expect(queued).toHaveLength(0);
+    expect(database.sqlite.prepare("SELECT status, lease_until FROM fetch_jobs").get())
+      .toEqual({ status: "pending", lease_until: null });
   });
 
   it("honors Retry-After and ignores old round messages", async () => {
