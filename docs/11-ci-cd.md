@@ -25,15 +25,15 @@ GitHub の Dependabot alerts で依存関係の既知の脆弱性を継続監視
 | npm audit | 開発依存を含む依存関係を PR・リリース・週次で検査し、high/critical を失敗とする |
 | Semgrep CE | apps / packages のソースコードを PR・リリース・週次で解析 |
 
-Community Cloud は通常4時間ごとに実行されるため、通常更新の時間帯を広く設ける。実際の PR 作成時刻は実行状況によって変わり、毎週の作成を保証するものではない。Renovate の PR は自動マージせず、CI を確認して手動でマージする。GitHub と Snyk では脆弱性データや静的解析ルールの範囲が異なる。GitHub の Dependabot alerts は SHA 固定の GitHub Actions にはアラートを生成しないため、Actions の更新内容は別途確認する。
+Community Cloud は通常4時間ごとに実行されるため、通常更新の時間帯を広く設ける。実際の PR 作成時刻は実行状況によって変わり、毎週の作成を保証するものではない。Renovate の PR は自動マージせず、CI を確認して手動でマージする。GitHub の Dependabot alerts は SHA 固定の GitHub Actions にはアラートを生成しないため、Actions の更新内容は別途確認する。
 
-## Renovate の導入と Snyk からの移行
+## Renovate の導入
 
 1. [Renovate GitHub App](https://github.com/apps/renovate) を `moz-sec/tayori` にインストールし、Dependabot alerts の読み取り権限を確認する。
 2. GitHub で Dependency graph と Dependabot alerts が有効であることを確認する。Security and quality の Dependabot alerts で npm の直接・間接依存を確認する。
 3. Renovate が設定を読み込み、npm workspaces と GitHub Actions の更新を認識することを確認する。修正可能な脆弱性アラートがある場合は修正 PR を確認する。対象がない場合は、将来のアラートで動作を確認する。
-4. GitHub Actions 上で npm audit と Semgrep が PR・リリース時に実行されることを確認する。Snyk Code と Semgrep の検出範囲が同一ではないことを踏まえて、既存の Snyk の指摘を確認する。
-5. 上記を確認してから、重複 PR を避けるため GitHub の Dependabot security updates を無効にし、Dependabot alerts は有効のままにする。Snyk 側の tayori の監視・修正 PR・Code analysis を停止し、必要に応じて GitHub 連携のアクセスを整理する。
+4. GitHub Actions 上で npm audit と Semgrep が PR・リリース時に実行されることを確認する。
+5. 上記を確認してから、重複 PR を避けるため GitHub の Dependabot security updates を無効にし、Dependabot alerts は有効のままにする。
 
 Dependabot の通常のバージョン更新設定は削除する。Renovate App が利用可能になるまでは通常更新 PR が作成されない。Dependabot security updates は設定ファイルの削除だけでは無効にならないため、移行確認後に設定画面で別途停止する。
 
