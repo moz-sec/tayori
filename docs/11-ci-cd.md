@@ -21,7 +21,7 @@ GitHub の Dependabot alerts で依存関係の既知の脆弱性を継続監視
 | 担当 | 対象・運用 |
 |---|---|
 | Dependabot alerts | 依存関係の既知の脆弱性を通知。Security and quality の Dependabot alerts で確認 |
-| Renovate | npm workspaces と GitHub Actions の更新 PR。通常更新は日本時間の土曜8時から翌0時まで、同時に最大5件。脆弱性修正は通常のスケジュールと上限を待たない |
+| Renovate | npm workspaces と GitHub Actions の更新 PR。通常更新は日本時間の土曜8時から翌0時まで、同時に最大10件（既定値）。脆弱性修正は通常のスケジュールと上限を待たない |
 | npm audit | 開発依存を含む依存関係を PR・リリース・週次で検査し、high/critical を失敗とする |
 | Semgrep CE | apps / packages のソースコードを PR・リリース・週次で解析 |
 

@@ -3,7 +3,5 @@
   "extends": ["config:recommended"],
   "enabledManagers": ["github-actions", "npm"],
   "timezone": "Asia/Tokyo",
-  "schedule": ["* 8-23 * * 6"],
-  "prConcurrentLimit": 5,
-  "automerge": false
+  "schedule": ["* 8-23 * * 6"]
 }
