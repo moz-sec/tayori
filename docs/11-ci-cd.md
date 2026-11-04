@@ -12,7 +12,7 @@ Release ワークフローはタグ名を検証し、対象コミットが `orig
 
 本番更新は共通concurrencyグループで直列化し、進行中のデプロイを新しいタグでキャンセルしない。待機中の実行は新しい実行で置換される場合があるため、タグは前のリリース結果を確認してから打つ。タグの付け直しは禁止し、失敗時は影響を確認して同じ実行を再実行するか修正タグを作る。
 
-D1 の変更は、旧 Worker と互換性のある追加変更に限る。既存の migration は編集せず、新しい SQL ファイルを追加する。migration または Worker の更新中に失敗すると、それまでに成功した更新は残る。複数の Worker と D1 の更新は原子的ではなく、自動ロールバックもしない。古い Worker に戻す場合も、DB との互換性を確認してから行う。
+D1 の変更は旧 Worker と互換性のある追加変更に限る。既存の migration は編集せず、新しい SQL ファイルを追加する。migration または Worker の更新中に失敗すると、それまでに成功した更新は残る。複数の Worker と D1 の更新は原子的ではなく、自動ロールバックもしない。古い Worker に戻す場合も、DB との互換性を確認してから行う。
 
 ## セキュリティ検査の役割分担
 
@@ -41,6 +41,7 @@ Dependabot の通常のバージョン更新設定は削除する。Renovate App
 
 | ワークフロー / ジョブ | 条件 | 合格基準 |
 |---|---|---|
+| CI / Workflow lockfile | main向けPR、手動 | gh actions-lock --verifyで全Workflowの依存関係と参照元を検証できる |
 | CI / Test and build | main向けPR、手動 | npm ci、型チェック、既存テスト、両Workerのビルドが成功 |
 | Preview | mainへのpush | 型チェック、テスト、collectorのビルド後、プレビューD1 migration、app Previewと専用collector Workerの配備が成功 |
 | Security / Dependency audit | 同上、リリースからの呼び出し、および毎週月曜09:23 JST | 開発依存を含むnpm auditでhigh/criticalがない |
@@ -54,6 +55,7 @@ Node.js 24、Ubuntu 24.04を使用する。インストールはルートのpack
 - GITHUB_TOKENはcontents: readのみ。checkout後に認証情報を残さない。
 - pull_requestを使用し、pull_request_targetでPRのコードを実行しない。PRのCIにSecretsは不要。本番のSecretsはproduction Environmentにのみ登録する。
 - Actionsは完全なコミットSHAで固定し、Renovateで週次の更新PRを作成する。自動マージは行わず、CIを確認して手動でマージする。
+- Actionが実行するコミットを`.github/workflows/actions.lock`で固定する。Workflowの`uses:`には完全なバージョンタグを記載する。Dependabotは週次の更新PRを作成し、導入済みWorkflowの更新ではlockfileも更新する。
 - Semgrep CEはバージョンを固定。Registryのp/defaultルールは最新を取得するため、判定は更新される。metricsとバージョン確認を無効化し、ソースや結果をSemgrepプラットフォームへアップロードする設定は使わない。
 - npm auditは依存情報をnpm Registryへ送信する。取得障害や解析エラーもジョブ失敗として扱い、黙って検査を省略しない。
 - 設定中のnpm Registry mirrorはRolldownのLinux向けoptional dependencyをlockfileに収録しないため、Linux runnerでは`npm ci`後に`@rolldown/binding-linux-x64-gnu`をlockfile非更新で追加する。Node 24 / x64 / glibc runnerを前提とする。mirrorが修正されたら暫定手順を削除できる。
@@ -62,7 +64,22 @@ Node.js 24、Ubuntu 24.04を使用する。インストールはルートのpack
 
 ## 運用と限界
 
-GitHub に反映した後、Actions の初回実行を確認する。マージを制限する場合は、リポジトリの Rulesets または Branch protection で `Test and build`、`Dependency audit`、`Semgrep` を必須チェックに設定する。ワークフローを追加しただけでは、チェックに失敗してもマージは止まらない。利用できる保護機能と Actions の実行枠は契約によって異なる。
+GitHub に反映した後、Actions の初回実行を確認する。マージを制限する場合は、リポジトリの Rulesets または Branch protection で `Workflow lockfile`、`Test and build`、`Dependency audit`、`Semgrep` を必須チェックに設定する。ワークフローを追加しただけでは、チェックに失敗してもマージは止まらない。利用できる保護機能と Actions の実行枠は契約によって異なる。
+
+### Workflow lockfileの更新
+
+Workflowや`uses:`を追加・変更したら、リポジトリのルートで次のコマンドを実行する。GitHub CLIの認証と`github/gh-actions-lock`拡張が必要。
+
+```sh
+gh actions-lock
+gh actions-lock --verify
+```
+
+生成されたWorkflowと`actions.lock`の差分を確認し、一緒にコミットする。lockfileは手で編集しない。CIの`Workflow lockfile`ジョブも`--verify`を実行し、依存関係の記録漏れや、Actionの参照元と記録の不整合を検出する。`gh-actions-lock`は`v0.4.0`に固定し、更新時はローカルとCIで同じバージョンを使って検証する。
+
+Actionが内部で使う別のActionも固定対象になる。再利用Workflowの呼び出し先、`run:`で取得するnpm・Pythonパッケージ、コンテナイメージ、runnerのOSは対象外。`release.yml`から呼ぶ同一リポジトリの`security.yml`で使うActionは、`security.yml`自身のlockfileエントリで固定する。npm依存の管理は引き続き`package-lock.json`で行う。[GitHub公式ドキュメント](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles)
+
+### プレビューの初回準備
 
 プレビュー用の初回準備として、別D1 `tayori-preview-db` とQueue `tayori-preview-jobs` を作成し、プレビューD1 IDをGitHub Environment `preview` の `TAYORI_PREVIEW_D1_DATABASE_ID` に登録する。`CLOUDFLARE_ACCOUNT_ID` とプレビュー専用の `CLOUDFLARE_API_TOKEN` も `preview` Environment に登録する。トークンには対象アカウント内のWorkers Previews配備、Workersスクリプト配備、D1 migration、Queue設定に必要な権限を付与する。プレビューと本番の認証情報は分ける。プレビューQueueが収集処理を起動することを理解した上で、必要ならcollectorのスケジュールやフィード取得先をプレビュー向けに制限する。
 
