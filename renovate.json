@@ -1,0 +1,7 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["github-actions", "npm"],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["* 8-23 * * 6"]
+}
