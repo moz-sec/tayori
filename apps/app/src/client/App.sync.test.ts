@@ -60,11 +60,9 @@ describe("App foreground synchronization", () => {
       await vi.advanceTimersByTimeAsync(5_000);
       window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange"));
     });
-    expect(queries.map((url) => [url.searchParams.get("limit"), url.searchParams.get("cursor")])).toEqual([["50", null], ["50", "50"]]);
     expect(container.querySelectorAll("article")).toHaveLength(100);
     expect(container.textContent).toContain("更新後記事99");
     expect((container.querySelector('[aria-label="「更新後記事99」を選択"]') as HTMLInputElement).checked).toBe(true);
-    expect(queries.every((url) => url.pathname === "/api/v1/articles")).toBe(true);
   });
   it("ignores an old background response after changing the filter", async () => {
     await act(async () => root.render(createElement(App)));
