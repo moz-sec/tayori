@@ -183,9 +183,19 @@ export function App() {
     setFolderBusy(true);
     try {
       await request(`/folders/${encodeURIComponent(folder.id)}`, { method: "DELETE" });
+      // A read started before the deletion must not restore the old folder tree.
+      ++reloadVersion.current;
       setFolderDialog(null);
+      setFolders((current) => current.filter((item) => item.id !== folder.id)
+        .map((item) => item.parentId === folder.id ? { ...item, parentId: folder.parentId } : item));
+      setSources((current) => current.map((source) => source.folderId === folder.id
+        ? { ...source, folderId: folder.parentId } : source));
       if (currentViewRef.current.split(":")[1] === folder.id) {
         // Changing the view triggers a guarded reload for its new parent (or all articles).
+        setArticles([]);
+        setNextCursor(null);
+        setLoadedView(null);
+        changeSelection([]);
         setFolderId(folder.parentId);
       } else {
         await latestReload.current();
