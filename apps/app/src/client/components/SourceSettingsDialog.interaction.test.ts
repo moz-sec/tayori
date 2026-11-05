@@ -46,6 +46,19 @@ afterEach(async () => {
 });
 
 describe("subscription settings interactions", () => {
+  it("moves a feed without fixing its unchanged automatic title", async () => {
+    request.mockResolvedValueOnce({});
+    await mount();
+    const title = container.querySelector('input[name="title"]')! as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, " Old ");
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+      const select = container.querySelector("select")!;
+      select.value = "folder"; select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => { container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(request).toHaveBeenCalledWith("/sources/feed", { method: "PATCH", body: JSON.stringify({ folderId: "folder" }) });
+  });
   it.each(["close button", "Escape"])("closes the native modal before notifying the parent and restores its opener with %s", async (exit) => {
     await mount(true);
     const dialog = container.querySelector("dialog")!;

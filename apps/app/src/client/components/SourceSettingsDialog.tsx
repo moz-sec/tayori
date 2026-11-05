@@ -53,7 +53,10 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
     try {
       await request(`/sources/${encodeURIComponent(source.id)}`, archived
         ? { method: "DELETE" }
-        : { method: "PATCH", body: JSON.stringify({ title, folderId: folderId || null }) });
+        : { method: "PATCH", body: JSON.stringify({
+          ...(title.trim() !== source.title ? { title: title.trim() } : {}),
+          folderId: folderId || null,
+        }) });
       await onCommitted(source.id, archived);
       dismiss();
     } catch (cause) {
