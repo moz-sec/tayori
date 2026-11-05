@@ -169,17 +169,50 @@ api.patch("/folders/:id", async (c) => {
   return c.json({ data: { id, parentId, name, sortOrder } });
 });
 
+api.post("/folders/:id/move", async (c) => {
+  const body = await readJson(c.req.raw);
+  if (body.direction !== "up" && body.direction !== "down") throw new ApiError(400, "INVALID_FOLDER_DIRECTION");
+  const id = c.req.param("id");
+  // Materialize current sibling ranks before updating any row. A single statement prevents partial swaps.
+  const { results } = await c.env.DB.prepare(
+    `WITH siblings AS MATERIALIZED (
+       SELECT id, row_number() OVER (ORDER BY sort_order, lower(name), id) - 1 AS position
+       FROM folders WHERE parent_id IS (SELECT parent_id FROM folders WHERE id = ?)
+     ), moving AS (
+       SELECT position AS old_position,
+         min(max(position + ?, 0), (SELECT COUNT(*) - 1 FROM siblings)) AS new_position
+       FROM siblings WHERE id = ?
+     )
+     UPDATE folders SET sort_order = (
+       SELECT CASE WHEN position = old_position THEN new_position
+         WHEN position = new_position THEN old_position ELSE position END
+       FROM siblings CROSS JOIN moving WHERE siblings.id = folders.id
+     ) WHERE id IN (SELECT id FROM siblings) AND EXISTS (SELECT 1 FROM moving)
+     RETURNING id`,
+  ).bind(id, body.direction === "up" ? -1 : 1, id).all<{ id: string }>();
+  if (!results?.some((row) => row.id === id)) throw new ApiError(404, "FOLDER_NOT_FOUND");
+  return c.body(null, 204);
+});
+
 api.delete("/folders/:id", async (c) => {
   const id = c.req.param("id");
   const folder = await c.env.DB.prepare("SELECT parent_id FROM folders WHERE id = ?")
     .bind(id).first<{ parent_id: string | null }>();
   if (!folder) throw new ApiError(404, "FOLDER_NOT_FOUND");
   const parentId = folder.parent_id;
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE folders SET parent_id = ? WHERE parent_id = ?").bind(parentId, id),
-    c.env.DB.prepare("UPDATE sources SET folder_id = ? WHERE folder_id = ?").bind(parentId, id),
-    c.env.DB.prepare("DELETE FROM folders WHERE id = ?").bind(id),
-  ]);
+  try {
+    await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE folders SET parent_id = ? WHERE parent_id = ?").bind(parentId, id),
+      c.env.DB.prepare("UPDATE sources SET folder_id = ? WHERE folder_id = ?").bind(parentId, id),
+      c.env.DB.prepare("DELETE FROM folders WHERE id = ?").bind(id),
+    ]);
+  } catch (error) {
+    // A failed D1 batch rolls back every move and the deletion together.
+    if (error instanceof Error && /UNIQUE constraint failed: index ['"]folders_unique_sibling_name['"]/.test(error.message)) {
+      throw new ApiError(409, "FOLDER_DELETE_NAME_CONFLICT");
+    }
+    throw error;
+  }
   return c.body(null, 204);
 });
 

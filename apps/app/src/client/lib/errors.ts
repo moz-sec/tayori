@@ -11,6 +11,8 @@ export function humanError(error: unknown): string {
     VERSION_CONFLICT: "記事の状態が更新されました。再読み込みしてください。",
     ORIGIN_NOT_ALLOWED: "リクエストの送信元を確認できませんでした。",
     FOLDER_ALREADY_EXISTS: "同じ階層に同名のフォルダがあります。",
+    FOLDER_DELETE_NAME_CONFLICT: "移動先に同名のフォルダがあるため削除できません。子フォルダの名前か移動先を変更してから再試行してください。",
+    FOLDER_BUSY: "フォルダを更新中です。完了を待ってください。",
     FOLDER_CYCLE: "フォルダを自分自身や配下へ移動できません。",
     OPML_FEED_LIMIT: "OPMLの購読先は一度に200件までです。",
     INVALID_OPML: "OPMLファイルを読み込めませんでした。",

@@ -201,14 +201,23 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     },
   });
   addOperation({
+    method: "post",
+    path: "/folders/{id}/move",
+    summary: "同じ親の中でフォルダの表示順を変更",
+    description: "現在の順序で隣接する兄弟フォルダと位置を入れ替え、兄弟のsortOrderを単一SQLで正規化します。親は変更しません。先頭・末尾を越える移動は順序を維持します。",
+    request: { params: idParams, body: z.object({ direction: z.enum(["up", "down"]) }) },
+    responses: { 204: emptyResponse, 404: jsonResponse(ErrorResponseSchema, "フォルダが見つかりません。") },
+  });
+  addOperation({
     method: "delete",
     path: "/folders/{id}",
     summary: "フォルダ削除",
-    description: "子フォルダと購読先は親フォルダへ移動します。",
+    description: "子フォルダと購読先は親フォルダへ移動します。最上位では子フォルダは最上位、購読先は未分類へ移ります。同名フォルダが衝突する場合は何も変更せず409を返します。",
     request: { params: idParams },
     responses: {
       204: emptyResponse,
       404: jsonResponse(ErrorResponseSchema, "フォルダが見つかりません。"),
+      409: jsonResponse(ErrorResponseSchema, "移動先に同名の子フォルダがあります（FOLDER_DELETE_NAME_CONFLICT）。"),
     },
   });
   addOperation({
