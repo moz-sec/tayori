@@ -37,7 +37,9 @@ beforeEach(() => {
       if (deferred) return deferred;
       if (url.searchParams.get("scope") === "unread") return Response.json({ data: [article("未読")], nextCursor: null });
       const start = Number(url.searchParams.get("cursor") ?? "0");
-      const end = Math.min(150, start + Number(url.searchParams.get("limit")));
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) return Response.json({ error: { code: "INVALID_LIMIT" } }, { status: 400 });
+      const end = Math.min(150, start + limit);
       return Response.json({ data: Array.from({ length: end - start }, (_, i) => article(String(start + i))), nextCursor: end < 150 ? String(end) : null });
     }
     throw new Error(`Unexpected request ${path}`);
