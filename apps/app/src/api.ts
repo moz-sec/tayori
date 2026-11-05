@@ -35,6 +35,7 @@ type SourceRow = {
   last_success_at: number | null;
   last_error_code: string | null;
   consecutive_failures: number;
+  unread_count?: number;
 };
 
 type ArticleRow = {
@@ -184,11 +185,20 @@ api.delete("/folders/:id", async (c) => {
 
 api.get("/sources", async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT id, folder_id, title, site_url, normalized_url, status, interval_minutes,
-       next_fetch_at, last_checked_at, last_success_at, last_error_code, consecutive_failures
-     FROM sources ORDER BY status, lower(title), id`,
-  ).all<SourceRow>();
-  return c.json({ data: (results ?? []).map(sourceDto) });
+    `WITH unread AS (
+       SELECT k.source_id, COUNT(*) AS unread_count
+       FROM articles a JOIN item_keys k ON k.id = a.id
+       WHERE a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
+         EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))
+       GROUP BY k.source_id
+     )
+     SELECT s.id, s.folder_id, s.title, s.site_url, s.normalized_url, s.status, s.interval_minutes,
+       s.next_fetch_at, s.last_checked_at, s.last_success_at, s.last_error_code, s.consecutive_failures,
+       COALESCE(u.unread_count, 0) AS unread_count
+     FROM sources s LEFT JOIN unread u ON u.source_id = s.id
+     ORDER BY s.status, lower(s.title), s.id`,
+  ).bind(unixNow()).all<SourceRow>();
+  return c.json({ data: (results ?? []).map((row) => ({ ...sourceDto(row), unreadCount: row.unread_count ?? 0 })) });
 });
 
 api.post("/sources", async (c) => {

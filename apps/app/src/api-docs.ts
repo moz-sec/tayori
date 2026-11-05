@@ -216,7 +216,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     path: "/sources",
     summary: "購読先一覧",
     responses: {
-      200: jsonResponse(dataResponse(z.array(SourceSchema)), "購読先一覧です。"),
+      200: jsonResponse(dataResponse(z.array(SourceSchema.extend({ unreadCount: z.number().int().nonnegative() }))), "購読先一覧です。未読数は記事一覧と同じ保持条件で集計します。"),
     },
   });
   

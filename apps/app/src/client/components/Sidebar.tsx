@@ -2,6 +2,7 @@ import type { FormEvent } from "react";
 import type { ImportRow } from "../lib/opml-import";
 import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss } from "react-icons/lu";
 import { formatDate } from "../lib/format";
+import { feedErrorMessage } from "../lib/feed-status";
 import type { Folder, FolderDialog, ImportOutline, Scope, Source } from "../types";
 
 interface SidebarProps {
@@ -64,10 +65,7 @@ export function Sidebar(props: SidebarProps) {
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Add subfolder to ${folder.name}`} title="Add subfolder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus /></button>
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Settings for ${folder.name}`} title="Folder settings" onClick={() => onOpenFolderDialog({ mode: "edit", folder })}><LuSettings /></button>
               </div>
-              {sources.filter((source) => source.folderId === folder.id && source.status !== "archived").map((source) => <div key={source.id} className="flex w-full min-w-0 flex-nowrap items-center justify-between gap-1 py-0 pl-5">
-                <button className={`flex! min-w-0 flex-1 flex-row! justify-start! truncate whitespace-nowrap ${sourceId === source.id ? "active" : ""}`} title={source.title} onClick={() => onSelectSource(source.id)}>{source.title}</button>
-                <button className="btn btn-ghost btn-xs" onClick={() => onToggleSource(source)} title={source.status === "active" ? "一時停止" : "再開"}>{source.status === "active" ? <LuPause /> : <LuPlay />}</button>
-              </div>)}
+              {sources.filter((source) => source.folderId === folder.id && source.status !== "archived").map((source) => <SourceItem key={source.id} source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} />)}
             </li>)}
           </ul>
         </section>
@@ -75,10 +73,7 @@ export function Sidebar(props: SidebarProps) {
         <section className="mt-7">
           <div className="mb-2 flex items-center justify-between px-2"><h2 className="text-xs font-bold uppercase tracking-wider text-base-content/55">未分類</h2><a className="link link-hover text-xs" href="/api/v1/subscriptions.opml">OPML出力</a></div>
           <div className="menu menu-sm max-h-56 flex-nowrap overflow-y-auto p-0">
-            {sources.filter((source) => source.status !== "archived" && !source.folderId).map((source) => <li key={source.id}><div className="flex justify-between! gap-1 p-1">
-              <button className={`min-w-0 flex-1 truncate justify-start! ${sourceId === source.id ? "active" : ""}`} title={source.title} onClick={() => onSelectSource(source.id)}>{source.title}</button>
-              <button className="btn btn-ghost btn-xs" onClick={() => onToggleSource(source)} title={source.status === "active" ? "一時停止" : "再開"}>{source.status === "active" ? <LuPause /> : <LuPlay />}</button>
-            </div></li>)}
+            {sources.filter((source) => source.status !== "archived" && !source.folderId).map((source) => <li key={source.id}><SourceItem source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} /></li>)}
           </div>
           <form className="mt-3 space-y-2 rounded-box bg-base-200 p-3" onSubmit={onCreateSource}>
             <p className="text-xs font-semibold">購読先を追加</p>
@@ -102,7 +97,8 @@ export function Sidebar(props: SidebarProps) {
         </section>
 
         <div className="mt-auto pt-8 text-xs leading-5 text-base-content/55" aria-live="polite">
-          {status ? <>{`購読 ${status.activeSources}件 · 要確認 ${status.failingSources}件`}{status.lastTickAt && <><br />最終確認 {formatDate(status.lastTickAt)}</>}</> : "状態を取得中…"}
+          {status ? <>{`購読 ${status.activeSources}件 · 要確認 ${status.failingSources}件`}{status.lastTickAt && <><br />収集スケジューラー最終実行 {formatDate(status.lastTickAt)}</>}</> : "状態を取得中…"}
+          <br />全体の実行時刻は各フィードの取得完了を示しません。
           <br />記事は{retentionDays}日間保存
         </div>
       </aside>
@@ -131,6 +127,38 @@ export function Sidebar(props: SidebarProps) {
       </div>
     </dialog>}
   </>;
+}
+
+/** Uses native details so feed diagnostics also work by keyboard and on touch screens. */
+function SourceItem({ source, selected, onSelect, onToggle }: {
+  source: Source;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onToggle: (source: Source) => void;
+}) {
+  return <div className="block! w-full min-w-0 p-1!">
+    <div className="flex min-w-0 items-center gap-1">
+      <button className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`} title={source.title} onClick={() => onSelect(source.id)}>
+        <span className="min-w-0 flex-1 truncate">{source.title}</span>
+        <span className="badge badge-sm shrink-0" aria-label={`未読${source.unreadCount}件`}>{source.unreadCount}</span>
+      </button>
+      <button className="btn btn-ghost btn-xs shrink-0" onClick={() => onToggle(source)} aria-label={`${source.title}を${source.status === "active" ? "一時停止" : "再開"}`} title={source.status === "active" ? "一時停止" : "再開"}>{source.status === "active" ? <LuPause /> : <LuPlay />}</button>
+    </div>
+    <details className="px-2 text-xs leading-5">
+      <summary className={`cursor-pointer ${source.errorCode ? "text-error" : "text-base-content/60"}`}>
+        {source.status === "paused" ? "一時停止中" : source.errorCode ? "取得エラー" : source.lastCheckedAt ? "定期収集が有効" : "初回取得の確認待ち"} · 取得状況
+      </summary>
+      <dl className="mt-1 break-words text-base-content/70">
+        <dt>状態</dt><dd>{source.status === "paused" ? "一時停止中（自動取得しません）" : "定期収集が有効"}</dd>
+        <dt>最終確認（成功・失敗を含む）</dt><dd>{source.lastCheckedAt ? formatDate(source.lastCheckedAt) : "まだ確認していません"}</dd>
+        <dt>最終成功（更新なしを含む）</dt><dd>{source.lastSuccessAt ? formatDate(source.lastSuccessAt) : "まだ成功していません"}</dd>
+        <dt>次回対象時刻</dt><dd>{source.status === "paused" ? "停止中のため対象外" : formatDate(source.nextFetchAt)}</dd>
+        <dt>連続失敗</dt><dd>{source.consecutiveFailures}回</dd>
+        {source.errorCode && <><dt>取得エラー</dt><dd className="text-error">{feedErrorMessage(source.errorCode)}<br /><span className="break-all">コード: {source.errorCode}</span></dd></>}
+      </dl>
+      {source.status === "active" && <p className="mt-1 text-base-content/60">次回対象時刻は取得完了時刻ではありません。毎時の収集処理・待機状況により遅れることがあります。</p>}
+    </details>
+  </div>;
 }
 
 /** Flattens the folder tree into display order while retaining each folder's depth. */

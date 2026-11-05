@@ -14,6 +14,9 @@ export interface Source {
   title: string;
   url: string;
   status: "active" | "paused" | "archived";
+  unreadCount: number;
+  lastCheckedAt: string | null;
+  nextFetchAt: string;
   lastSuccessAt: string | null;
   errorCode: string | null;
   consecutiveFailures: number;
