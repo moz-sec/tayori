@@ -37,12 +37,14 @@ export function CollectionSettingsDialog({ onClose }: { onClose: () => void }) {
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [loadVersion]);
+  /** Closes the native modal before restoring focus to its still-mounted opener. */
   const dismiss = () => {
     if (pendingRef.current) return;
     dialogRef.current?.close();
     onClose();
     requestAnimationFrame(() => { if (openerRef.current?.isConnected) openerRef.current.focus(); });
   };
+  /** Commits the draft and only replaces confirmed values after the API accepts it. */
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (pendingRef.current || loading || !saved) return;
