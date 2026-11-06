@@ -34,6 +34,10 @@ Issue #38では利用者がブラウザーから行う次の操作を確認す�
 
 Issue #21のAPI/DB結合テストはSQL制約、競合、不正入力、保持・原子性を受け持つ。関数の細かな境界条件は単体テストで扱い、E2Eに重複して追加しない。OPMLの階層・部分失敗は既存のAPI・関数テストで扱う。Preview/Productionの実認証・実収集・デプロイ確認はIssue #20の範囲。
 
+6. 購読URL編集の競合後に最新一覧を読み込み、古い入力を再保存させず、開き直した画面へ最新URLを表示
+
+7. 小さい画面でサイドバーをスクロールし、下部の収集設定へ到達できること
+
 ## 待機と失敗調査
 
 利用者向けのrole、ラベル、記事タイトルで要素を特定する。画面表示にはPlaywrightの再試行付きassertion、状態確認にはAPI応答または `expect.poll` を使い、固定時間の待機を置かない。画面復帰テストはPlaywright clockでフォーカスイベントのクールダウンだけを進め、実ブラウザーのタブを切り替える。headless Chromiumはタブを常に表示状態として扱うため、切り替え後のfocusイベントを明示的に発火し、ブラウザーの実際のイベント処理・API再取得・画面反映を検証する。ダイアログ終了時のフォーカス復帰は実際のactiveElementで確認する。
@@ -45,4 +49,4 @@ npx playwright show-report apps/app/playwright-report
 npx playwright show-trace output/playwright/test-results/<失敗したテスト>/trace.zip
 ```
 
-CIは既存の型チェック・単体/結合テスト・ビルドに加えてChromiumのこの5フローだけを実行し、失敗時の成果物を7日間保存する。
+CIは既存の型チェック・単体/結合テスト・ビルドに加えてChromiumのこの7フローだけを実行し、失敗時の成果物を7日間保存する。

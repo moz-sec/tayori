@@ -149,3 +149,40 @@ test("収集設定を保存して再読み込みし、保存失敗時は入力�
   await dialog.getByRole("button", { name: "収集設定を保存", exact: true }).click();
   await expect(confirmed).toContainText("保存済み：6時間ごと");
 });
+
+
+test("購読URLの競合後は最新一覧を読み込み、古い入力の再保存を防ぐ", async ({ page, request }) => {
+  await page.getByRole("button", { name: "テスト購読の購読設定", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "購読設定：テスト購読", exact: true });
+  await dialog.getByLabel("RSS / Atom URL", { exact: true }).fill("https://example.com/stale-draft.xml");
+  await page.route("**/api/v1/sources/seed-source", async (route) => {
+    const latest = await request.patch("/api/v1/sources/seed-source", {
+      headers: { Origin: "http://127.0.0.1:4173" },
+      data: { title: "別端末URL", url: "https://example.com/latest.xml" },
+    });
+    expect(latest.ok()).toBeTruthy();
+    await route.fulfill({ status: 409, json: { error: { code: "SOURCE_VERSION_CONFLICT" } } });
+  });
+  await dialog.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("設定を開き直して");
+  await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "閉じる", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
+  await page.unroute("**/api/v1/sources/seed-source");
+  await page.getByRole("button", { name: "別端末URLの購読設定", exact: true }).click();
+  await expect(page.getByRole("dialog").getByLabel("RSS / Atom URL", { exact: true })).toHaveValue("https://example.com/latest.xml");
+});
+
+
+test("小さい画面でもサイドバーをスクロールして収集設定へ移動できる", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 560 });
+  const drawer = page.locator(".drawer-side");
+  await expect(drawer).toHaveCSS("pointer-events", "auto");
+  expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(320);
+  await drawer.hover();
+  await page.mouse.wheel(0, 1200);
+  await expect.poll(() => drawer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(drawer.getByRole("button", { name: "RSS収集設定", exact: true })).toBeInViewport();
+  await drawer.getByRole("button", { name: "RSS収集設定", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "RSS収集設定", exact: true })).toBeVisible();
+});
