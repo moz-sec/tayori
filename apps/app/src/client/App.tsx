@@ -172,8 +172,7 @@ export function App() {
         tell("フォルダを作成しました");
       }
       setFolderDialog(null); form.reset(); await reload();
-    } catch (error) { tell(humanError(error), true); }
-    finally { folderMutationRef.current = false; setFolderBusy(false); }
+    } finally { folderMutationRef.current = false; setFolderBusy(false); }
   };
 
   /** Deletes only the folder, retaining its feeds and articles at the parent level. */
@@ -223,12 +222,10 @@ export function App() {
     event.preventDefault();
     const form = event.currentTarget;
     const values = new FormData(form);
-    try {
-      await request("/sources", { method: "POST", body: JSON.stringify({
-        url: values.get("url"), title: values.get("title") || undefined, folderId: values.get("folderId") || null,
-      }) });
-      form.reset(); tell("購読先を登録しました。記事はバックグラウンドで取得されます。"); await reload();
-    } catch (error) { tell(humanError(error), true); }
+    await request("/sources", { method: "POST", body: JSON.stringify({
+      url: values.get("url"), title: values.get("title") || undefined, folderId: values.get("folderId") || null,
+    }) });
+    form.reset(); tell("購読先を登録しました。記事はバックグラウンドで取得されます。"); await reload();
   };
 
   /** Pauses or resumes feed polling. */
@@ -260,7 +257,7 @@ export function App() {
       setImportItems(null);
       setImportRows([]);
       setImportSummary("");
-      tell(humanError(error), true);
+      throw error;
     } finally {
       if (generation === importFileGenerationRef.current) parsingImportRef.current = false;
     }
@@ -395,7 +392,7 @@ export function App() {
         onCreateSource={createSource}
         onToggleSource={toggleSource}
         onOpenSourceDialog={setSourceDialog}
-        onImportFile={(file) => void handleOpmlFile(file)}
+        onImportFile={handleOpmlFile}
         onImportOpml={() => void importOpml()}
       />
       {sourceDialog && <SourceSettingsDialog
