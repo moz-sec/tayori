@@ -68,7 +68,7 @@ export function Sidebar(props: SidebarProps) {
         <div className="h-8 shrink-0" aria-hidden="true" />
         <nav aria-label="記事の絞り込み" className="menu menu-sm gap-1 p-0">
           {(["all", "unread", "read-later", "starred"] as Scope[]).map((item) => <li key={item}>
-            <button className={scope === item && !folderId && !sourceId ? "active" : ""} onClick={() => onScopeChange(item)}>
+            <button aria-current={scope === item && !folderId && !sourceId ? "page" : undefined} className={scope === item && !folderId && !sourceId ? "active" : ""} onClick={() => onScopeChange(item)}>
               <span className="flex w-5 justify-center">{scopeIcon(item)}</span>{scopeLabel(item)}
             </button>
           </li>)}
@@ -77,19 +77,19 @@ export function Sidebar(props: SidebarProps) {
         <section className="mt-7">
           <div className="mb-2 flex items-center justify-between px-2">
             <h2 className="text-xs font-bold uppercase tracking-wider text-base-content/55">Feeds</h2>
-            <button className="btn btn-ghost btn-xs" aria-label="New folder" title="New folder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: null })}><LuPlus /></button>
+            <button className="btn btn-ghost btn-xs" aria-label="New folder" title="New folder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: null })}><LuPlus aria-hidden="true" /></button>
           </div>
           <ul className="menu menu-sm max-h-52 w-full flex-nowrap overflow-y-auto p-0">
             {visibleFolders.map((folder) => <li key={folder.id} className="w-full">
               <div className="flex w-full min-w-0 flex-nowrap items-center gap-0.5">
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-expanded={!collapsedFolders.has(folder.id)} aria-label={`${folder.name}を${collapsedFolders.has(folder.id) ? "展開" : "折りたたむ"}`} onClick={() => toggleFolder(folder.id)}>{collapsedFolders.has(folder.id) ? <LuChevronRight /> : <LuChevronDown />}</button>
-                <button className={(folderId === folder.id ? "active " : "") + "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"} style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }} onClick={() => onSelectFolder(folder.id)}>
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-expanded={!collapsedFolders.has(folder.id)} aria-label={`${folder.name}を${collapsedFolders.has(folder.id) ? "展開" : "折りたたむ"}`} onClick={() => toggleFolder(folder.id)}>{collapsedFolders.has(folder.id) ? <LuChevronRight aria-hidden="true" /> : <LuChevronDown aria-hidden="true" />}</button>
+                <button aria-current={folderId === folder.id ? "page" : undefined} className={(folderId === folder.id ? "active " : "") + "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"} style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }} onClick={() => onSelectFolder(folder.id)}>
                   <LuFolder className="shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>{folder.unreadCount > 0 && <span className="badge badge-sm shrink-0">{folder.unreadCount}</span>}
                 </button>
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を上へ移動`} title="同じ親の中で上へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId)[0]?.id === folder.id} onClick={() => void moveFolder(folder.id, "up")}><LuArrowUp /></button>
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を下へ移動`} title="同じ親の中で下へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id === folder.id} onClick={() => void moveFolder(folder.id, "down")}><LuArrowDown /></button>
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Add subfolder to ${folder.name}`} title="Add subfolder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus /></button>
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Settings for ${folder.name}`} title="Folder settings" onClick={() => onOpenFolderDialog({ mode: "edit", folder })}><LuSettings /></button>
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を上へ移動`} title="同じ親の中で上へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId)[0]?.id === folder.id} onClick={() => void moveFolder(folder.id, "up")}><LuArrowUp aria-hidden="true" /></button>
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を下へ移動`} title="同じ親の中で下へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id === folder.id} onClick={() => void moveFolder(folder.id, "down")}><LuArrowDown aria-hidden="true" /></button>
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Add subfolder to ${folder.name}`} title="Add subfolder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus aria-hidden="true" /></button>
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Settings for ${folder.name}`} title="Folder settings" onClick={() => onOpenFolderDialog({ mode: "edit", folder })}><LuSettings aria-hidden="true" /></button>
               </div>
               {!collapsedFolders.has(folder.id) && sources.filter((source) => source.folderId === folder.id && source.status !== "archived").map((source) => <SourceItem key={source.id} source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} onSettings={onOpenSourceDialog} />)}
             </li>)}
@@ -169,12 +169,12 @@ function SourceItem({ source, selected, onSelect, onToggle, onSettings }: {
 }) {
   return <div className="block! w-full min-w-0 p-1!">
     <div className="flex min-w-0 items-center gap-1">
-      <button className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`} title={source.title} onClick={() => onSelect(source.id)}>
+      <button aria-current={selected ? "page" : undefined} className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`} title={source.title} onClick={() => onSelect(source.id)}>
         <span className="min-w-0 flex-1 truncate">{source.title}</span>
         <span className="badge badge-sm shrink-0" aria-label={`未読${source.unreadCount}件`}>{source.unreadCount}</span>
       </button>
-      <button className="btn btn-ghost btn-xs shrink-0" onClick={() => onToggle(source)} aria-label={`${source.title}を${source.status === "active" ? "一時停止" : "再開"}`} title={source.status === "active" ? "一時停止" : "再開"}>{source.status === "active" ? <LuPause /> : <LuPlay />}</button>
-      <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${source.title}の購読設定`} title="購読設定" onClick={() => onSettings(source)}><LuSettings /></button>
+      <button className="btn btn-ghost btn-xs shrink-0" onClick={() => onToggle(source)} aria-label={`${source.title}を${source.status === "active" ? "一時停止" : "再開"}`} title={source.status === "active" ? "一時停止" : "再開"}>{source.status === "active" ? <LuPause aria-hidden="true" /> : <LuPlay aria-hidden="true" />}</button>
+      <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${source.title}の購読設定`} title="購読設定" onClick={() => onSettings(source)}><LuSettings aria-hidden="true" /></button>
     </div>
     <details className="px-2 text-xs leading-5">
       <summary className={`cursor-pointer ${source.errorCode ? "text-error" : "text-base-content/60"}`}>
