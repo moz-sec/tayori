@@ -71,6 +71,7 @@ function isQueueMessage(value: unknown): value is QueueMessage {
 }
 
 /** Dispatches one page of the hourly round and repairs unfinished jobs. */
+/** Dispatches one current hourly round without duplicating active jobs or replaying missed rounds. */
 async function processTick(env: Env, scheduledAtMs: number, cursor?: string): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const roundAt = Math.floor(scheduledAtMs / 1000 / HOUR_SECONDS) * HOUR_SECONDS;
@@ -147,6 +148,7 @@ async function continueTick(env: Env, roundAt: number, cursor: string, now: numb
   await env.JOBS.send({ schemaVersion: 1, type: "tick", scheduledAt: roundAt * 1000, cursor });
 }
 
+/** Processes a claimed feed job while preserving newer settings, retry deadlines, and article state. */
 async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const job = await env.DB.prepare(
