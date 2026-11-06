@@ -22,4 +22,6 @@ button, input, select { font: inherit; }
   font-size: 1.2rem;
   font-weight: 500;
 }
-.tayori-sidebar { box-shadow: 6px 0 18px rgb(0 0 0 / 0.08); }
+/* Keep the full-viewport drawer from intercepting article controls. */
+.drawer > .drawer-toggle:checked ~ .drawer-side { pointer-events: none; }
+.tayori-sidebar { pointer-events: auto; box-shadow: 6px 0 18px rgb(0 0 0 / 0.08); }

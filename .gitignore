@@ -21,3 +21,7 @@ dist/
 !.vscode/extensions.json
 !.vscode/settings.json
 npm-debug.log*
+
+# Browser test diagnostics
+output/playwright/
+apps/app/playwright-report/

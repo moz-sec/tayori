@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.client.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "node", "vite/client"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts", "vite.e2e.config.ts", ".cloudflare/types"]
+}

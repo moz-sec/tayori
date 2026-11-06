@@ -19,6 +19,7 @@
     "deploy": "npm run deploy --workspace @tayori/app && npm run deploy --workspace @tayori/collector",
     "db:migrate:local": "npm run db:migrate:local --workspace @tayori/app",
     "db:migrate:remote": "npm run db:migrate:remote --workspace @tayori/app",
-    "db:migrate:preview": "npm run db:migrate:preview --workspace @tayori/app"
+    "db:migrate:preview": "npm run db:migrate:preview --workspace @tayori/app",
+    "test:e2e": "npm run test:e2e --workspace @tayori/app"
   }
 }
