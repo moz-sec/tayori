@@ -271,6 +271,7 @@ api.post("/sources/import", async (c) => {
   return c.json({ data: results });
 });
 
+/** Applies subscription edits atomically and rejects schedule or generation races. */
 api.patch("/sources/:id", async (c) => {
   const id = c.req.param("id");
   const body = await readJson(c.req.raw);
@@ -562,6 +563,7 @@ api.doc("/openapi.json", {
 
 api.get("/docs", swaggerUI({ url: "/api/v1/openapi.json" }));
 
+/** Validates a new subscription and retains existing reading state through a stable source ID. */
 async function createSource(db: D1Database, input: unknown): Promise<SourceRow> {
   const body = asRecord(input);
   const url = readFeedUrl(body.url);

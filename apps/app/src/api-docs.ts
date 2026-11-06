@@ -2,6 +2,7 @@ import { z, type OpenAPIHono } from "@hono/zod-openapi";
 
 type OpenAPIRegistry = OpenAPIHono["openAPIRegistry"];
 
+/** Describes the validated API handlers, including URL edits and their conflict responses. */
 export function registerApiOperations(registry: OpenAPIRegistry) {
   const ErrorResponseSchema = z.object({
     error: z.object({
