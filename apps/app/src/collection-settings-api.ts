@@ -40,6 +40,7 @@ async function readSnapshot(db: D1Database) {
   return { ...(schedule ?? DEFAULT_COLLECTION_SCHEDULE), next_fetch_at: toIso(row?.next) };
 }
 
+/** Formats a stored due time for the API, retaining null when there are no active sources. */
 function toIso(seconds: number | null | undefined) {
   return seconds == null ? null : new Date(seconds * 1000).toISOString();
 }
