@@ -408,6 +408,7 @@ export function App() {
         folders={folders}
         onClose={() => setSourceDialog(null)}
         onFallbackFocus={() => refreshButtonRef.current?.focus()}
+        onConflict={async () => { await latestReload.current(false, false, false); }}
         onCommitted={async (id, archived) => {
           if (archived) setSourceId((current) => current === id ? null : current);
           await latestReload.current();
