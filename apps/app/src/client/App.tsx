@@ -6,6 +6,7 @@ import { getMutationState, request } from "./lib/api-client";
 import { startForegroundSync } from "./lib/foreground-sync";
 import { loadArticleWindow } from "./lib/article-window";
 import { SourceSettingsDialog } from "./components/SourceSettingsDialog";
+import { CollectionSettingsDialog } from "./components/CollectionSettingsDialog";
 import { parseOpmlFile } from "./lib/opml";
 import { importOpmlRows, summarizeImport, type ImportRow } from "./lib/opml-import";
 import { humanError } from "./lib/errors";
@@ -26,8 +27,9 @@ export function App() {
   const folderMutationRef = useRef(false);
   const [sources, setSources] = useState<Source[]>([]);
   const [sourceDialog, setSourceDialog] = useState<Source | null>(null);
+  const [collectionSettingsOpen, setCollectionSettingsOpen] = useState(false);
   const dialogOpenRef = useRef(false);
-  useLayoutEffect(() => { dialogOpenRef.current = !!folderDialog || !!sourceDialog; }, [folderDialog, sourceDialog]);
+  useLayoutEffect(() => { dialogOpenRef.current = !!folderDialog || !!sourceDialog || collectionSettingsOpen; }, [folderDialog, sourceDialog, collectionSettingsOpen]);
   const [articles, setArticles] = useState<Article[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [retentionDays, setRetentionDays] = useState(7);
@@ -395,9 +397,11 @@ export function App() {
         onCreateSource={createSource}
         onToggleSource={toggleSource}
         onOpenSourceDialog={setSourceDialog}
+        onOpenCollectionSettings={() => setCollectionSettingsOpen(true)}
         onImportFile={(file) => void handleOpmlFile(file)}
         onImportOpml={() => void importOpml()}
       />
+      {collectionSettingsOpen && <CollectionSettingsDialog onClose={() => setCollectionSettingsOpen(false)} />}
       {sourceDialog && <SourceSettingsDialog
         key={sourceDialog.id}
         source={sourceDialog}

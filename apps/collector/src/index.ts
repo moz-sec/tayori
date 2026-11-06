@@ -1,5 +1,6 @@
 import type { QueueMessage } from "@tayori/shared";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
+import { loadCollectionSchedule, nextCollectionAt } from "@tayori/shared/collection-schedule";
 import {
   DEFAULT_RETENTION_DAYS,
   MAX_ARTICLES_PER_FEED,
@@ -106,24 +107,28 @@ async function processTick(env: Env, scheduledAtMs: number, cursor?: string): Pr
     return;
   }
 
+  const { schedule, storedValue } = await loadCollectionSchedule(env.DB);
   const due = (await env.DB.prepare(
     `SELECT id, normalized_url, title, interval_minutes, etag, last_modified, generation, status, consecutive_failures
      FROM sources WHERE status = 'active' AND next_fetch_at <= ? AND id > ?
+       AND COALESCE(retry_not_before, 0) <= ?
        AND NOT EXISTS (SELECT 1 FROM fetch_jobs j WHERE j.source_id = sources.id AND j.status IN ('pending','sent','running'))
      ORDER BY id LIMIT ?`,
-  ).bind(roundAt, cursor ?? "", FETCH_BATCH_LIMIT).all<SourceRow>()).results ?? [];
+  ).bind(roundAt, cursor ?? "", roundAt, FETCH_BATCH_LIMIT).all<SourceRow>()).results ?? [];
 
   for (const source of due) {
     const jobId = crypto.randomUUID();
-    const nextFetchAt = roundAt + HOUR_SECONDS;
+    const nextFetchAt = nextCollectionAt(schedule, roundAt);
     const results = await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO fetch_jobs(id, source_id, generation, status, created_at)
          SELECT ?, id, generation, 'pending', ? FROM sources
          WHERE id = ? AND status = 'active' AND generation = ? AND next_fetch_at <= ?
+           AND COALESCE(retry_not_before, 0) <= ?
+           AND COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?
            AND NOT EXISTS (SELECT 1 FROM fetch_jobs j WHERE j.source_id = sources.id AND j.status IN ('pending','sent','running'))
          ON CONFLICT(id) DO NOTHING`,
-      ).bind(jobId, now, source.id, source.generation, roundAt),
+      ).bind(jobId, now, source.id, source.generation, roundAt, roundAt, storedValue),
       env.DB.prepare(
         `UPDATE sources SET next_fetch_at = ? WHERE id = ? AND status = 'active' AND generation = ?
          AND next_fetch_at <= ? AND EXISTS (SELECT 1 FROM fetch_jobs WHERE id = ? AND status = 'pending')`,
@@ -142,11 +147,6 @@ async function continueTick(env: Env, roundAt: number, cursor: string, now: numb
   await env.JOBS.send({ schemaVersion: 1, type: "tick", scheduledAt: roundAt * 1000, cursor });
 }
 
-/** Aligns successful polling to the next hourly Cron boundary. */
-function nextHourlyFetch(now: number): number {
-  return (Math.floor(now / HOUR_SECONDS) + 1) * HOUR_SECONDS;
-}
-
 async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const job = await env.DB.prepare(
@@ -163,16 +163,20 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
     await completeJob(env.DB, job.id, "done", now);
     return;
   }
+  const { schedule, storedValue } = await loadCollectionSchedule(env.DB);
+  const nextFetchAt = nextCollectionAt(schedule, now);
 
   try {
     const response = await fetchWithRedirects(source);
     if (response.status === 304) {
       await env.DB.batch([
         env.DB.prepare(
-          `UPDATE sources SET last_checked_at = ?, last_success_at = ?, next_fetch_at = ?,
-             consecutive_failures = 0, last_error_code = NULL, last_error_at = NULL
+          `UPDATE sources SET last_checked_at = ?, last_success_at = ?,
+             next_fetch_at = CASE WHEN COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?
+               THEN MAX(next_fetch_at, ?) ELSE next_fetch_at END,
+             retry_not_before = NULL, consecutive_failures = 0, last_error_code = NULL, last_error_at = NULL
            WHERE id = ? AND generation = ?`,
-        ).bind(now, now, nextHourlyFetch(now), source.id, job.generation),
+        ).bind(now, now, storedValue, nextFetchAt, source.id, job.generation),
         env.DB.prepare("UPDATE fetch_jobs SET status = 'done', lease_until = NULL, completed_at = ? WHERE id = ?")
           .bind(now, job.id),
       ]);
@@ -196,11 +200,14 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
       env.DB.prepare(
         `UPDATE sources SET title = CASE WHEN title_is_custom = 0 AND ? != '' THEN ? ELSE title END,
            site_url = COALESCE(?, site_url), etag = ?, last_modified = ?, last_checked_at = ?,
-           last_success_at = ?, next_fetch_at = ?, consecutive_failures = 0,
+           last_success_at = ?,
+           next_fetch_at = CASE WHEN COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?
+             THEN MAX(next_fetch_at, ?) ELSE next_fetch_at END,
+           retry_not_before = NULL, consecutive_failures = 0,
            last_error_code = NULL, last_error_at = NULL
          WHERE id = ? AND generation = ?`,
       ).bind(parsed.title ?? "", parsed.title ?? "", siteUrl, newEtag, newLastModified, now, now,
-        nextHourlyFetch(now), source.id, job.generation),
+        storedValue, nextFetchAt, source.id, job.generation),
       env.DB.prepare("UPDATE fetch_jobs SET status = 'done', lease_until = NULL, completed_at = ? WHERE id = ?")
         .bind(now, job.id),
     ]);
@@ -213,9 +220,10 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
       const nextFetch = Math.max(now + fallback, retryAfter ? now + retryAfter : 0);
       await env.DB.batch([
         env.DB.prepare(
-          `UPDATE sources SET last_checked_at = ?, next_fetch_at = ?, consecutive_failures = ?,
+          `UPDATE sources SET last_checked_at = ?, next_fetch_at = MAX(next_fetch_at, ?),
+             retry_not_before = ?, consecutive_failures = ?,
              last_error_code = ?, last_error_at = ? WHERE id = ? AND generation = ?`,
-        ).bind(now, nextFetch, failures, code, now, source.id, job.generation),
+        ).bind(now, nextFetch, nextFetch, failures, code, now, source.id, job.generation),
         env.DB.prepare("UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ? WHERE id = ?")
           .bind(now, job.id),
       ]);
