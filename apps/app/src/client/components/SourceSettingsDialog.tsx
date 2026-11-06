@@ -27,12 +27,12 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
   }, []);
 
   /** Leaves the browser's modal state before restoring a usable focus target. */
-  const dismiss = () => {
+  const dismiss = (forceFallback = false) => {
     dialogRef.current?.close();
     onClose();
     // A successful move/archive may remove the opener in the pending React commit.
     requestAnimationFrame(() => {
-      if (openerRef.current?.isConnected) openerRef.current.focus();
+      if (!forceFallback && openerRef.current?.isConnected) openerRef.current.focus();
       else onFallbackFocus?.();
     });
   };
@@ -62,7 +62,7 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
           folderId: folderId || null,
         }) });
       await onCommitted(source.id, archived);
-      dismiss();
+      dismiss(archived || (folderId || null) !== source.folderId);
     } catch (cause) {
       setError(humanError(cause));
       if (cause instanceof Error && cause.message === "SOURCE_VERSION_CONFLICT") {
