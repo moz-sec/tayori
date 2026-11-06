@@ -345,8 +345,8 @@ export function App() {
         </button>
         <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 sm:px-12 sm:py-14 lg:px-16">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">{heading}</h1>
+            <div className="min-w-0 max-w-full">
+              <h1 className="text-3xl font-bold tracking-tight [overflow-wrap:anywhere]">{heading}</h1>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <button ref={refreshButtonRef} className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
