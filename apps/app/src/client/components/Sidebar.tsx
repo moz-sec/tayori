@@ -4,6 +4,7 @@ import type { ImportRow } from "../lib/opml-import";
 import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss, LuChevronDown, LuChevronRight, LuArrowUp, LuArrowDown } from "react-icons/lu";
 import { flattenFolders, readCollapsedFolders, saveCollapsedFolders } from "../lib/folder-tree";
 import { formatDate } from "../lib/format";
+import { isPlainNavigation, navigationHref } from "../lib/navigation";
 import { feedErrorMessage } from "../lib/feed-status";
 import type { Folder, FolderDialog, ImportOutline, Scope, Source } from "../types";
 
@@ -68,9 +69,9 @@ export function Sidebar(props: SidebarProps) {
         <div className="h-8 shrink-0" aria-hidden="true" />
         <nav aria-label="記事の絞り込み" className="menu menu-sm gap-1 p-0">
           {(["all", "unread", "read-later", "starred"] as Scope[]).map((item) => <li key={item}>
-            <button className={scope === item && !folderId && !sourceId ? "active" : ""} onClick={() => onScopeChange(item)}>
+            <a href={navigationHref({ scope: item, folderId: null, sourceId: null })} className={scope === item && !folderId && !sourceId ? "active" : ""} onClick={(event) => { if (isPlainNavigation(event)) { event.preventDefault(); onScopeChange(item); } }}>
               <span className="flex w-5 justify-center">{scopeIcon(item)}</span>{scopeLabel(item)}
-            </button>
+            </a>
           </li>)}
         </nav>
 
@@ -83,9 +84,9 @@ export function Sidebar(props: SidebarProps) {
             {visibleFolders.map((folder) => <li key={folder.id} className="w-full">
               <div className="flex w-full min-w-0 flex-nowrap items-center gap-0.5">
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-expanded={!collapsedFolders.has(folder.id)} aria-label={`${folder.name}を${collapsedFolders.has(folder.id) ? "展開" : "折りたたむ"}`} onClick={() => toggleFolder(folder.id)}>{collapsedFolders.has(folder.id) ? <LuChevronRight /> : <LuChevronDown />}</button>
-                <button className={(folderId === folder.id ? "active " : "") + "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"} style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }} onClick={() => onSelectFolder(folder.id)}>
+                <a href={navigationHref({ scope: "all", folderId: folder.id, sourceId: null })} className={(folderId === folder.id ? "active " : "") + "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"} style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }} onClick={(event) => { if (isPlainNavigation(event)) { event.preventDefault(); onSelectFolder(folder.id); } }}>
                   <LuFolder className="shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>{folder.unreadCount > 0 && <span className="badge badge-sm shrink-0">{folder.unreadCount}</span>}
-                </button>
+                </a>
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を上へ移動`} title="同じ親の中で上へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId)[0]?.id === folder.id} onClick={() => void moveFolder(folder.id, "up")}><LuArrowUp /></button>
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を下へ移動`} title="同じ親の中で下へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id === folder.id} onClick={() => void moveFolder(folder.id, "down")}><LuArrowDown /></button>
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Add subfolder to ${folder.name}`} title="Add subfolder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus /></button>
@@ -169,10 +170,10 @@ function SourceItem({ source, selected, onSelect, onToggle, onSettings }: {
 }) {
   return <div className="block! w-full min-w-0 p-1!">
     <div className="flex min-w-0 items-center gap-1">
-      <button className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`} title={source.title} onClick={() => onSelect(source.id)}>
+      <a href={navigationHref({ scope: "all", folderId: null, sourceId: source.id })} className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`} title={source.title} onClick={(event) => { if (isPlainNavigation(event)) { event.preventDefault(); onSelect(source.id); } }}>
         <span className="min-w-0 flex-1 truncate">{source.title}</span>
         <span className="badge badge-sm shrink-0" aria-label={`未読${source.unreadCount}件`}>{source.unreadCount}</span>
-      </button>
+      </a>
       <button className="btn btn-ghost btn-xs shrink-0" onClick={() => onToggle(source)} aria-label={`${source.title}を${source.status === "active" ? "一時停止" : "再開"}`} title={source.status === "active" ? "一時停止" : "再開"}>{source.status === "active" ? <LuPause /> : <LuPlay />}</button>
       <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${source.title}の購読設定`} title="購読設定" onClick={() => onSettings(source)}><LuSettings /></button>
     </div>

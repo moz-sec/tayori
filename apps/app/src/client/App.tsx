@@ -12,6 +12,7 @@ import { importOpmlRows, summarizeImport, type ImportRow } from "./lib/opml-impo
 import { humanError } from "./lib/errors";
 import { formatDate } from "./lib/format";
 import { markArticlesRead, type MarkReadResult } from "./lib/mark-read";
+import { ALL_ARTICLES, navigationHref, navigationKey, readNavigation, validateNavigation, type NavigationView } from "./lib/navigation";
 import type { Article, Folder, FolderDialog, ImportOutline, Page, Scope, Source } from "./types";
 
 /** Owns application state and API actions, then composes the main interface. */
@@ -37,9 +38,9 @@ export function App() {
       requestAnimationFrame(() => articleHeadingRef.current?.focus());
     }
   };
-  const [scope, setScope] = useState<Scope>("all");
-  const [folderId, setFolderId] = useState<string | null>(null);
-  const [sourceId, setSourceId] = useState<string | null>(null);
+  const [navigation, setNavigation] = useState(() => readNavigation(window.location.href));
+  const { scope, folderId, sourceId } = navigation;
+  const navigationRef = useRef(navigation);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -79,8 +80,36 @@ export function App() {
   const [loadedView, setLoadedView] = useState<string | null>(null);
   const loadedViewRef = useRef<string | null>(null);
   const reloadVersion = useRef(0);
-  const currentView = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
+  const currentView = navigationKey(navigation);
   const currentViewRef = useRef(currentView);
+  const navigate = useCallback((next: NavigationView, mode: "push" | "replace" = "push") => {
+    const href = navigationHref(next, window.location.href);
+    const currentHref = `${location.pathname}${location.search}${location.hash}`;
+    if (href !== currentHref) window.history[mode === "replace" ? "replaceState" : "pushState"](null, "", href);
+    if (navigationKey(next) === currentViewRef.current) return;
+    // Invalidate pending reads immediately, including the interval before React commits.
+    currentViewRef.current = navigationKey(next);
+    navigationRef.current = next;
+    ++reloadVersion.current;
+    reloadingRef.current = true;
+    setNavigation(next);
+    setArticles([]);
+    setNextCursor(null);
+    setLoadedView(null);
+    changeSelection([]);
+  }, [changeSelection]);
+  useEffect(() => {
+    navigate(readNavigation(window.location.href), "replace");
+    const onPopState = () => {
+      navigate(readNavigation(window.location.href), "replace");
+      if (!window.matchMedia("(min-width: 1024px)").matches) {
+        setSidebarOpen(false);
+        requestAnimationFrame(() => articleHeadingRef.current?.focus());
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [navigate]);
   const articleCountRef = useRef(articles.length);
   useLayoutEffect(() => { articleCountRef.current = articles.length; }, [articles.length]);
   useLayoutEffect(() => {
@@ -94,7 +123,8 @@ export function App() {
 
   /** Reloads folders, feeds, account settings, status, and articles in parallel. */
   const reload = useCallback(async (append = false, background = false, clearNotice = true) => {
-    const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
+    const selection = { scope, folderId, sourceId };
+    const view = navigationKey(selection);
     if (view !== currentViewRef.current) return;
     if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return;
     const version = ++reloadVersion.current;
@@ -122,8 +152,8 @@ export function App() {
       if (background && (mutationVersion !== getMutationState().version || dialogOpenRef.current)) return;
       setFolders(folderResult.data);
       setSources(sourceResult.data);
-      if (folderId && !folderResult.data.some((folder) => folder.id === folderId)) { setFolderId(null); return; }
-      if (sourceId && !sourceResult.data.some((source) => source.id === sourceId && source.status !== "archived")) { setSourceId(null); return; }
+      const valid = validateNavigation(selection, folderResult.data, sourceResult.data);
+      if (navigationKey(valid) !== view) { navigate(valid, "replace"); return; }
       setRetentionDays(me.data.retentionDays);
       setStatus(statusResult.data);
       setArticles((current) => append ? [...current, ...articleResult.data] : articleResult.data);
@@ -150,7 +180,7 @@ export function App() {
         setReloading(false);
       }
     }
-  }, [scope, folderId, sourceId, nextCursor, changeSelection]);
+  }, [scope, folderId, sourceId, nextCursor, changeSelection, navigate]);
 
   useEffect(() => { void reload(false, false, false); }, [scope, folderId, sourceId]);
 
@@ -210,13 +240,13 @@ export function App() {
         .map((item) => item.parentId === folder.id ? { ...item, parentId: folder.parentId } : item));
       setSources((current) => current.map((source) => source.folderId === folder.id
         ? { ...source, folderId: folder.parentId } : source));
-      if (currentViewRef.current.split(":")[1] === folder.id) {
+      if (navigationRef.current.folderId === folder.id) {
         // Changing the view triggers a guarded reload for its new parent (or all articles).
         setArticles([]);
         setNextCursor(null);
         setLoadedView(null);
         changeSelection([]);
-        setFolderId(folder.parentId);
+        navigate({ scope: "all", folderId: folder.parentId, sourceId: null }, "replace");
       } else {
         await latestReload.current();
       }
@@ -404,9 +434,9 @@ export function App() {
         importSummary={importSummary}
         importRows={importRows}
         busy={busy}
-        onScopeChange={(nextScope) => { setScope(nextScope); setFolderId(null); setSourceId(null); finishNavigation(); }}
-        onSelectFolder={(id) => { setFolderId(id); setSourceId(null); setScope("all"); finishNavigation(); }}
-        onSelectSource={(id) => { setSourceId(id); setFolderId(null); setScope("all"); finishNavigation(); }}
+        onScopeChange={(nextScope) => { navigate({ scope: nextScope, folderId: null, sourceId: null }); finishNavigation(); }}
+        onSelectFolder={(id) => { navigate({ scope: "all", folderId: id, sourceId: null }); finishNavigation(); }}
+        onSelectSource={(id) => { navigate({ scope: "all", folderId: null, sourceId: id }); finishNavigation(); }}
         onOpenFolderDialog={(dialog) => { if (!folderMutationRef.current) setFolderDialog(dialog); }}
         onCloseFolderDialog={() => { if (!folderMutationRef.current) setFolderDialog(null); }}
         onSaveFolder={saveFolder}
@@ -429,7 +459,7 @@ export function App() {
           target?.focus({ preventScroll: true });
         }}
         onCommitted={async (id, archived) => {
-          if (archived) setSourceId((current) => current === id ? null : current);
+          if (archived && navigationRef.current.sourceId === id) navigate(ALL_ARTICLES, "replace");
           await latestReload.current();
         }}
       />}
