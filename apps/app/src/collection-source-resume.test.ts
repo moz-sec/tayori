@@ -34,7 +34,10 @@ describe("subscription schedule on resume", () => {
     }, { DB: db.binding, JOBS: { send } } as unknown as Env);
   }
 
-  it("resumes a paused subscription on the next daily boundary while retaining its retry deadline", async () => {
+  it.each([
+    { retryAt: "2026-11-06T03:22:00Z", expected: "2026-11-07T00:00:00.000Z" },
+    { retryAt: "2026-11-08T03:00:00Z", expected: "2026-11-08T03:00:00.000Z" },
+  ])("resumes after both the daily boundary and retry deadline: $retryAt", async ({ retryAt: retryIso, expected }) => {
     const db = database();
     const at = Date.parse("2026-11-06T01:22:00Z");
     const clock = vi.spyOn(Date, "now").mockReturnValue(at);
@@ -43,11 +46,11 @@ describe("subscription schedule on resume", () => {
       db.sqlite.prepare("INSERT INTO app_state(key, value) VALUES ('collection_schedule', ?)").run(JSON.stringify({
         mode: "daily", interval_hours: 1, daily_hour_jst: 9, timezone: "Asia/Tokyo",
       }));
-      const retryAt = at / 1000 + 7200;
+      const retryAt = Date.parse(retryIso) / 1000;
       db.sqlite.prepare("UPDATE sources SET status = 'paused', next_fetch_at = 0, retry_not_before = ?").run(retryAt);
       const response = await patch(db, { status: "active" });
       expect(response.status).toBe(200);
-      expect((await response.json()).data.nextFetchAt).toBe("2026-11-07T00:00:00.000Z");
+      expect((await response.json()).data.nextFetchAt).toBe(expected);
       expect(db.sqlite.prepare("SELECT status, retry_not_before FROM sources WHERE id = 'source'").get())
         .toEqual({ status: "active", retry_not_before: retryAt });
       await deliver(db, { schemaVersion: 1, type: "tick", scheduledAt: Date.parse("2026-11-06T01:00:00Z") }, send);

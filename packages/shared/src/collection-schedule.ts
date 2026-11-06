@@ -52,6 +52,7 @@ export async function loadCollectionSchedule(db: D1Database): Promise<{
   return { schedule: schedule ?? { ...DEFAULT_COLLECTION_SCHEDULE }, storedValue };
 }
 
+/** Loads a validated persisted schedule, falling back to the hourly default. */
 export async function readCollectionSchedule(db: D1Database): Promise<CollectionSchedule> {
   return (await loadCollectionSchedule(db)).schedule;
 }
