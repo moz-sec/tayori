@@ -287,10 +287,11 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     method: "patch",
     path: "/sources/{id}",
     summary: "購読先更新",
-    description: "一時停止からの再開は共通の収集設定と失敗後の待機期限に従います。保存と収集設定の変更が競合した場合は409を返します。",
+    description: "URL変更時は旧URLの取得ジョブを無効化し、次回の定期収集を待ちます。記事キー・既存記事・既読・保存状態は維持します。同じGUIDや記事URLのキーは引き続き重複排除され、配信元の変更でキーが変わる記事は新規記事となります。一時停止からの再開も共通の収集設定と失敗後の待機期限に従います。",
     request: {
       params: idParams,
       body: z.object({
+        url: z.string().url().max(2048).optional(),
         folderId: nullableIdSchema.optional(),
         title: z.string().max(100).optional(),
         status: z.enum(["active", "paused"]).optional(),
@@ -298,7 +299,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     },
     responses: {
       200: jsonResponse(dataResponse(SourceSchema), "更新後の購読先です。"),
-      409: jsonResponse(ErrorResponseSchema, "収集設定または購読設定が変更されました。設定を再取得して再試行してください。"),
+      409: jsonResponse(ErrorResponseSchema, "URLが別の購読先と重複しているか、他の更新と競合しました。"),
       404: jsonResponse(ErrorResponseSchema, "購読先が見つかりません。"),
     },
   });

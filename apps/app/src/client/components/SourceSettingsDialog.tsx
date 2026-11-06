@@ -36,6 +36,7 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
     });
   };
   const [title, setTitle] = useState(source.title);
+  const [url, setUrl] = useState(source.url);
   const [folderId, setFolderId] = useState(source.folderId ?? "");
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [archiveAccepted, setArchiveAccepted] = useState(false);
@@ -55,6 +56,7 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
         ? { method: "DELETE" }
         : { method: "PATCH", body: JSON.stringify({
           ...(title.trim() !== source.title ? { title: title.trim() } : {}),
+          ...(url.trim() !== source.url ? { url: url.trim() } : {}),
           folderId: folderId || null,
         }) });
       await onCommitted(source.id, archived);
@@ -74,10 +76,14 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
   return <dialog ref={dialogRef} aria-modal="true" className="modal modal-open z-50" aria-labelledby="source-settings-title" onCancel={(event) => { event.preventDefault(); if (!pendingRef.current) dismiss(); }}>
     <div className="modal-box">
       <h2 id="source-settings-title" className="mb-4 text-lg font-bold">購読設定：{source.title}</h2>
-      <p className="mb-4 break-all text-xs text-base-content/60">{source.url}</p>
       {error && <p role="alert" className="alert alert-error mb-4">{error}</p>}
       <form onSubmit={save}>
         <fieldset className="space-y-4" disabled={pending || confirmArchive}>
+          <label className="form-control w-full">
+            <span className="label-text mb-1">RSS / Atom URL</span>
+            <input className="input input-bordered w-full" name="url" type="url" maxLength={2048} value={url} onChange={(event) => setUrl(event.currentTarget.value)} aria-describedby="source-url-help" required />
+          </label>
+          <p id="source-url-help" className="text-sm text-base-content/70">URLの変更後は次回の定期収集を待ちます。既存の記事・既読・保存状態は保持します。配信元の記事IDや記事URLが変わると、同じ内容でも新しい記事として登録される場合があります。</p>
           <label className="form-control w-full">
             <span className="label-text mb-1">表示名</span>
             <input className="input input-bordered w-full" name="title" maxLength={100} value={title} onChange={(event) => setTitle(event.currentTarget.value)} required />
