@@ -433,6 +433,7 @@ export function App() {
         onFallbackFocus={() => {
           const target = !desktop ? document.getElementById("tayori-sidebar-close") : refreshButtonRef.current;
           target?.focus({ preventScroll: true });
+        }}
         onConflict={async () => {
           if (!await latestReload.current(false, false, false)) throw new Error("SOURCE_REFRESH_FAILED");
         }}
