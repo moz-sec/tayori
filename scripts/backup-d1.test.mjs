@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,7 @@ async function fixture(t, scenario) {
     import { appendFileSync } from 'node:fs';
     globalThis.fetch = async (url, options = {}) => {
       appendFileSync(process.env.TRACE, JSON.stringify({url, body: options.body, authorization: options.headers?.Authorization}) + '\\n');
+      if (process.env.SCENARIO === 'hang') await new Promise(() => setInterval(() => {}, 1000));
       if (process.env.SCENARIO === 'failure') throw new Error('secret-token signed-url-secret');
       if (process.env.SCENARIO === 'error-status') return Response.json({success:true, result:{status:'error', error:'secret-token'}});
       if (String(url).includes('/export')) {
@@ -91,7 +93,7 @@ test("failure preserves existing backups, does not expose secrets and stale stat
     },
   );
   assert.equal(await readFile(join(f.dir, name), "utf8"), "old");
-  assert.ok(!(await readdir(f.dir)).includes(".backup.lock"));
+  assert.equal((await stat(join(f.dir, ".backup-lock.sqlite"))).mode & 0o777, 0o600);
   await assert.rejects(exec(process.execPath, [check], { env: f.env }));
   await writeFile(join(f.dir, "last-success"), `2020-01-01T00:00:00.000Z ${name}\n`);
   await assert.rejects(exec(process.execPath, [check], { env: f.env }));
@@ -109,13 +111,15 @@ test("restores data and invalidates jobs on old and current schemas", async () =
     )
   ).join("\n");
   const safety = await readFile(join(root, "scripts/restore-d1-safety.sql"), "utf8");
-  for (const current of [false, true]) {
+  for (const [current, status] of [false, true].flatMap((current) =>
+    ["pending", "sent", "running"].map((status) => [current, status]),
+  )) {
     const db = new DatabaseSync(":memory:");
     db.exec(current ? currentMigrations : migration1 + migration2);
     db.exec(`INSERT INTO sources(id, normalized_url, title, generation) VALUES('s','https://example.test','Feed',2);
       INSERT INTO item_keys VALUES('a','s','key',1);
       INSERT INTO articles(id,title,url,read_at,starred,read_later,first_seen_at,expires_at) VALUES('a','Article','https://example.test/a',2,1,1,1,999);
-      INSERT INTO fetch_jobs(id,source_id,generation,status) VALUES('j','s',3,'sent');`);
+      INSERT INTO fetch_jobs(id,source_id,generation,status) VALUES('j','s',3,'${status}');`);
     db.exec(safety);
     assert.equal(db.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
     assert.equal(db.prepare("PRAGMA foreign_key_check").all().length, 0);
@@ -161,4 +165,47 @@ test("rejects an API error status without retaining or exposing its message", as
     },
   );
   assert.ok(!(await readdir(f.dir)).includes("last-success"));
+});
+
+test("exclusive lock survives contention and is released after SIGKILL", async (t) => {
+  const f = await fixture(t, "hang");
+  const child = spawn(process.execPath, ["--import", f.preload, backup], {
+    env: f.env,
+    stdio: "ignore",
+  });
+  t.after(() => child.kill("SIGKILL"));
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try {
+      await stat(f.env.TRACE);
+      break;
+    } catch {
+      if (Date.now() > deadline) throw new Error("first export did not start");
+      await new Promise((done) => setTimeout(done, 20));
+    }
+  }
+  await assert.rejects(exec(process.execPath, ["--import", f.preload, backup], { env: f.env }));
+  assert.equal((await readFile(f.env.TRACE, "utf8")).trim().split("\n").length, 1);
+  const exited = once(child, "exit");
+  child.kill("SIGKILL");
+  await exited;
+  await writeFile(f.env.TRACE, "");
+  const results = await Promise.allSettled(
+    Array.from({ length: 3 }, () =>
+      exec(process.execPath, ["--import", f.preload, backup], {
+        env: { ...f.env, SCENARIO: "success" },
+      }),
+    ),
+  );
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const requests = (await readFile(f.env.TRACE, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(
+    requests.filter(
+      (request) =>
+        request.body &&
+        JSON.parse(request.body).output_format === "polling" &&
+        !JSON.parse(request.body).current_bookmark,
+    ).length,
+    1,
+  );
 });

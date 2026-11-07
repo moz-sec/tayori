@@ -28,7 +28,8 @@ node /ABSOLUTE/PATH/TO/tayori/scripts/backup-d1.mjs
 
 必要な環境変数は `TAYORI_BACKUP_DIR`、`CLOUDFLARE_ACCOUNT_ID`、`TAYORI_D1_DATABASE_ID`、`CLOUDFLARE_API_TOKEN`。
 取得中は排他ロックと一時ファイルを使用し、成功した SQL と SHA-256 ファイルを保存してから古い世代を削除する。
-異常終了で `.backup.lock` が残った場合は、実行中のプロセスがないことを確認してから削除する。
+排他制御にはローカルファイルシステム上の `.backup-lock.sqlite` を使う。
+プロセスの異常終了後もファイルは残るが、ロックは解除されるため削除しない。
 トークンや署名付き URL をログや他人に渡さない。
 
 `scripts/backup-d1.launchd.plist.example` は macOS の日次実行例である。

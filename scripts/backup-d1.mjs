@@ -11,6 +11,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { join, relative, resolve, isAbsolute } from "node:path";
@@ -32,8 +33,9 @@ const keep = 7;
 const stamp = new Date().toISOString().replaceAll(":", "-");
 const name = `d1-${stamp}.sql`;
 const partial = join(dir, `.${name}.partial`);
-const lockPath = join(dir, ".backup.lock");
+const lockPath = join(dir, ".backup-lock.sqlite");
 let lock;
+let locked = false;
 try {
   const repo = await realpath(fileURLToPath(new URL("../", import.meta.url)));
   const isInside = (path) => {
@@ -45,7 +47,11 @@ try {
   if (isInside(await realpath(dir)))
     throw new Error("Backup directory must be outside the repository");
   await chmod(dir, 0o700);
-  lock = await open(lockPath, "wx", 0o600);
+  const lockFile = await open(lockPath, "a", 0o600);
+  await lockFile.close();
+  lock = new DatabaseSync(lockPath);
+  lock.exec("PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE;");
+  locked = true;
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/d1/database/${encodeURIComponent(database)}/export`;
   async function request(body) {
     const response = await fetch(endpoint, {
@@ -103,9 +109,6 @@ try {
   console.error("Backup failed; check the connection, permissions, lock and available disk space");
   process.exitCode = 1;
 } finally {
-  if (lock) {
-    await rm(partial, { force: true }).catch(() => {});
-    await lock.close();
-    await rm(lockPath, { force: true });
-  }
+  if (locked) await rm(partial, { force: true }).catch(() => {});
+  if (lock) lock.close();
 }
