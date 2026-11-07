@@ -512,6 +512,26 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
             lastTickAt: z.string().datetime().nullable(),
             activeSources: z.number(),
             failingSources: z.number(),
+            d1Usage: z.object({
+              state: z.enum(["disabled", "ok", "warning", "stopped"]),
+              reason: z.enum([
+                "disabled",
+                "within_limits",
+                "approaching_limit",
+                "limit_reached",
+                "unavailable",
+              ]),
+              metrics: z.array(z.enum(["storageBytes", "rowsRead", "rowsWritten"])),
+              snapshot: z
+                .object({
+                  observedAt: z.string().datetime(),
+                  dayUtc: z.string(),
+                  storageBytes: z.number(),
+                  rowsRead: z.number(),
+                  rowsWritten: z.number(),
+                })
+                .nullable(),
+            }),
           }),
         ),
         "定期処理と購読先の状況です。",
