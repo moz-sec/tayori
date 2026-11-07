@@ -2,6 +2,7 @@ import { z, type OpenAPIHono } from "@hono/zod-openapi";
 
 type OpenAPIRegistry = OpenAPIHono["openAPIRegistry"];
 
+/** Describes the validated API handlers, including URL edits and their conflict responses. */
 export function registerApiOperations(registry: OpenAPIRegistry) {
   const ErrorResponseSchema = z.object({
     error: z.object({
@@ -18,6 +19,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
   });
   const SourceSchema = z.object({
     id: z.string(),
+    generation: z.number().int().min(1),
     folderId: z.string().nullable(),
     title: z.string(),
     siteUrl: z.string().nullable(),
@@ -55,6 +57,12 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     articleCount: z.number().optional(),
   });
   const dataResponse = <T extends z.ZodType>(schema: T) => z.object({ data: schema });
+  const CollectionScheduleSchema = z.object({
+    mode: z.enum(["interval", "daily"]),
+    interval_hours: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(6), z.literal(12), z.literal(24)]),
+    daily_hour_jst: z.number().int().min(0).max(23),
+    timezone: z.literal("Asia/Tokyo"),
+  });
   const jsonResponse = (schema: z.ZodType, description: string) => ({
     description,
     content: { "application/json": { schema } },
@@ -111,6 +119,17 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     });
   };
   
+  for (const method of ["get", "put"] as const) {
+    addOperation({
+      method,
+      path: "/settings/collection-schedule",
+      summary: method === "get" ? "共通のRSS収集設定を取得" : "共通のRSS収集設定を保存",
+      description: "毎時Cronから実行します。保存や記事一覧の更新では即時取得しません。間隔の起点はUTC epochです。保存時に次の時間境界へ予定を再計算し、実行中ジョブと失敗後の待機期限を維持します。未設定時は1時間間隔です。next_fetch_atは有効な購読先の最も早い予定で、取得完了時刻ではありません。",
+      ...(method === "put" ? { request: { body: CollectionScheduleSchema } } : {}),
+      responses: { 200: jsonResponse(dataResponse(CollectionScheduleSchema.extend({ next_fetch_at: z.string().datetime().nullable() })), "保存済み設定と最も早い取得予定です。") },
+    });
+  }
+
   const idParams = z.object({
     id: z.string().openapi({
       param: { name: "id", in: "path" },
@@ -270,9 +289,12 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     method: "patch",
     path: "/sources/{id}",
     summary: "購読先更新",
+    description: "URLを含む更新は編集開始時のgenerationをexpectedGenerationとして必ず指定します。不一致なら変更せず409を返します。URL変更時は旧URLの取得ジョブを無効化し、次回の定期収集を待ちます。記事キー・既存記事・既読・保存状態は維持します。同じGUIDや記事URLのキーは引き続き重複排除され、配信元の変更でキーが変わる記事は新規記事となります。一時停止からの再開も共通の収集設定と失敗後の待機期限に従います。",
     request: {
       params: idParams,
       body: z.object({
+        url: z.string().url().max(2048).optional(),
+        expectedGeneration: z.number().int().min(1).max(2_147_483_647).optional().describe("URLを含む更新では必須。編集開始時に取得したgenerationを指定し、不一致時は409になります。"),
         folderId: nullableIdSchema.optional(),
         title: z.string().max(100).optional(),
         status: z.enum(["active", "paused"]).optional(),
@@ -280,6 +302,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     },
     responses: {
       200: jsonResponse(dataResponse(SourceSchema), "更新後の購読先です。"),
+      409: jsonResponse(ErrorResponseSchema, "URLが別の購読先と重複しているか、他の更新と競合しました。"),
       404: jsonResponse(ErrorResponseSchema, "購読先が見つかりません。"),
     },
   });

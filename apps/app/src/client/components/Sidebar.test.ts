@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./Sidebar";
 import type { Source } from "../types";
 
-const source: Source = { id: "s1", folderId: null, title: "Feed", url: "https://example.com/feed", status: "active", unreadCount: 7, lastCheckedAt: null, lastSuccessAt: null, nextFetchAt: "2026-11-01T12:00:00Z", errorCode: null, consecutiveFailures: 0 };
+const source: Source = { id: "s1", generation: 1, folderId: null, title: "Feed", url: "https://example.com/feed", status: "active", unreadCount: 7, lastCheckedAt: null, lastSuccessAt: null, nextFetchAt: "2026-11-01T12:00:00Z", errorCode: null, consecutiveFailures: 0 };
 function render(sources: Source[]) {
   return renderToStaticMarkup(createElement(Sidebar, {
     scope: "all", folderId: null, sourceId: null, folders: [{ id: "folder", parentId: null, name: "Folder", sortOrder: 0, unreadCount: 0 }], sources,

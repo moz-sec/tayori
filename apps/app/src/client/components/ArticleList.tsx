@@ -35,14 +35,14 @@ export function ArticleList({ articles, nextCursor, loadMoreDisabled = false, up
 
 /** Renders an article summary and its read, save, and favorite actions. */
 function ArticleCard({ article, updatesDisabled, selected, selectionDisabled, onToggleSelection, onUpdate }: { article: Article; updatesDisabled: boolean; selected: boolean; selectionDisabled: boolean; onToggleSelection: ArticleListProps["onToggleSelection"]; onUpdate: ArticleListProps["onUpdate"] }) {
-  return <article className="card border border-base-300 bg-base-100 shadow-sm transition-shadow hover:shadow-md">
-    <div className="card-body gap-3 p-5 sm:p-6">
+  return <article className="card min-w-0 wrap-anywhere border border-base-300 bg-base-100 shadow-sm transition-shadow hover:shadow-md">
+    <div className="card-body min-w-0 gap-3 p-5 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/75">
         <label className="flex cursor-pointer items-center gap-2 text-base-content">
           <input type="checkbox" className="checkbox checkbox-sm" checked={selected} disabled={selectionDisabled} onChange={() => onToggleSelection(article.id)} aria-label={`「${article.title}」を選択`} />
           <span>選択</span>
         </label>
-        <span className="font-semibold text-primary">{article.sourceTitle}</span>
+        <span className="min-w-0 max-w-full font-semibold text-primary">{article.sourceTitle}</span>
         <span aria-hidden="true">·</span><time>{formatDate(article.publishedAt ?? article.expiresAt)}</time>
         <span className={`badge badge-xs ${article.read ? "badge-outline" : "badge-primary"}`}>{article.read ? "既読" : "未読"}</span>
       </div>
