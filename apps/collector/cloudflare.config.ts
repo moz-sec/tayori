@@ -17,6 +17,20 @@ export default defineConfig(({ mode }) => {
         enabled: true,
         logs: { enabled: true, headSamplingRate: 1 },
         traces: { enabled: true, headSamplingRate: 1 },
+        ...(process.env.TAYORI_MONITORING_ENABLED === "true"
+          ? {
+              MONITOR_WEBHOOK_URL: bindings.secret(),
+              MONITOR_TICK_STALE_SECONDS: bindings.text(
+                process.env.MONITOR_TICK_STALE_SECONDS ?? "10800",
+              ),
+              MONITOR_BACKLOG_STALE_SECONDS: bindings.text(
+                process.env.MONITOR_BACKLOG_STALE_SECONDS ?? "10800",
+              ),
+              MONITOR_FAILURE_THRESHOLD: bindings.text(
+                process.env.MONITOR_FAILURE_THRESHOLD ?? "3",
+              ),
+            }
+          : {}),
       },
       env: {
         DB: bindings.d1({

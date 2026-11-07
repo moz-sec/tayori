@@ -512,6 +512,10 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
             lastTickAt: z.string().datetime().nullable(),
             activeSources: z.number(),
             failingSources: z.number(),
+            lastSuccessAt: z.string().datetime().nullable(),
+            oldestPendingAt: z.string().datetime().nullable(),
+            maxConsecutiveFailures: z.number(),
+            queueBudgetStopped: z.boolean(),
             d1Usage: z.object({
               state: z.enum(["disabled", "ok", "warning", "stopped"]),
               reason: z.enum([

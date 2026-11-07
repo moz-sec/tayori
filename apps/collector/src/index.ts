@@ -8,6 +8,7 @@ import {
   MAX_QUEUE_OPERATIONS_PER_DAY,
 } from "@tayori/shared";
 import { refreshUsageControl, loadUsageControl } from "./usage-control";
+import { runMonitoring, monitoringOptions, type MonitoringEnv } from "./monitoring";
 import { FeedParseError, parseFeed, sha256, isSafeFeedTarget } from "./feed";
 
 const JOB_LEASE_SECONDS = 300;
@@ -44,6 +45,19 @@ export default {
       await refreshUsageControl(env, now);
     } catch {
       console.error(JSON.stringify({ event: "d1_usage_refresh_failed" }));
+    }
+    const monitoringEnv: MonitoringEnv = env;
+    if (monitoringEnv.MONITOR_WEBHOOK_URL) {
+      try {
+        const usage = await loadUsageControl(env.DB, now);
+        await runMonitoring(
+          env.DB,
+          now,
+          monitoringOptions(monitoringEnv, usage.state === "stopped"),
+        );
+      } catch {
+        console.error(JSON.stringify({ event: "monitoring_failed" }));
+      }
     }
     const message: QueueMessage = {
       schemaVersion: 1,

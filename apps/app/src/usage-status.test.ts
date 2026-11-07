@@ -37,6 +37,10 @@ it("reports usage stop and source status while allowing reads and deferring init
   expect(await status.json()).toMatchObject({
     data: {
       d1Usage: { state: "stopped", reason: "limit_reached", metrics: ["storageBytes"] },
+      lastSuccessAt: new Date(now - 60_000).toISOString(),
+      maxConsecutiveFailures: 2,
+      oldestPendingAt: null,
+      queueBudgetStopped: false,
     },
   });
   db.state.queries = 0;

@@ -20,6 +20,7 @@ Tayori は、購読先から届く情報をフォルダに整理して読む個�
 | [公式資料](./10-references.md)                 | 制限値・機能の確認元                            |
 | [CI/CD設計](./11-ci-cd.md)                     | GitHub Actionsのテスト、Semgrep、依存関係の監視 |
 | [D1利用量の監視](./15-d1-usage.md)             | 利用量の取得、警告、取り込み停止                |
+| [収集監視と通知](./16-monitoring.md)           | 収集状態の監視と通知                            |
 | [UIデザイン指針](./12-ui-design-guidelines.md) | 色、文字、余白、部品、状態表示、日本語表記      |
 
 図は各 Markdown 文書内に Mermaid で記載しています。編集用の原本は[diagrams](diagrams/README.md)にあります。基本的な API、UI、Queue による収集処理は実装済みですが、実環境での運用、
