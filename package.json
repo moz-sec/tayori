@@ -19,13 +19,16 @@
     "dev:collector": "npm run dev --workspace @tayori/collector",
     "build": "npm run build --workspace @tayori/app && npm run build --workspace @tayori/collector",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && npm run test:backup",
     "deploy": "npm run deploy --workspace @tayori/app && npm run deploy --workspace @tayori/collector",
     "db:migrate:local": "npm run db:migrate:local --workspace @tayori/app",
     "db:seed:local": "npm run db:seed:local --workspace @tayori/app",
     "db:setup:local": "npm run db:migrate:local && npm run db:seed:local",
     "db:migrate:remote": "npm run db:migrate:remote --workspace @tayori/app",
-    "db:migrate:preview": "npm run db:migrate:preview --workspace @tayori/app"
+    "db:migrate:preview": "npm run db:migrate:preview --workspace @tayori/app",
+    "backup:d1": "node scripts/backup-d1.mjs",
+    "backup:check": "node scripts/backup-d1-check.mjs",
+    "test:backup": "node --test scripts/backup-d1.test.mjs"
   },
   "devDependencies": {
     "markdownlint-cli2": "^0.24.0",
