@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { FolderDialog as FolderDialogModal } from "./FolderDialog";
 import type { ImportRow } from "../lib/opml-import";
 import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss, LuChevronDown, LuChevronRight, LuArrowUp, LuArrowDown, LuEllipsis } from "react-icons/lu";
@@ -49,6 +49,9 @@ export function Sidebar(props: SidebarProps) {
   const [movingFolder, setMovingFolder] = useState<string | null>(null);
   useEffect(() => { saveCollapsedFolders(collapsedFolders); }, [collapsedFolders]);
   const [actionFolderId, setActionFolderId] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (actionFolderId) document.getElementById(`folder-actions-${actionFolderId}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [actionFolderId]);
   const flatFolders = flattenFolders(folders);
   const visibleFolders = flattenFolders(folders, collapsedFolders);
   const toggleFolder = (id: string) => setCollapsedFolders((current) => {
