@@ -9,10 +9,11 @@ interface SourceSettingsDialogProps {
   onClose: () => void;
   onFallbackFocus?: () => void;
   onCommitted: (sourceId: string, archived: boolean) => Promise<void>;
+  onConflict: () => Promise<void>;
 }
 
 /** Edits a subscription while retaining entered values and errors until the API accepts them. */
-export function SourceSettingsDialog({ source, folders, onClose, onCommitted, onFallbackFocus }: SourceSettingsDialogProps) {
+export function SourceSettingsDialog({ source, folders, onClose, onCommitted, onFallbackFocus, onConflict }: SourceSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
@@ -26,27 +27,29 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
   }, []);
 
   /** Leaves the browser's modal state before restoring a usable focus target. */
-  const dismiss = () => {
+  const dismiss = (forceFallback = false) => {
     dialogRef.current?.close();
     onClose();
     // A successful move/archive may remove the opener in the pending React commit.
     requestAnimationFrame(() => {
-      if (openerRef.current?.isConnected) openerRef.current.focus();
+      if (!forceFallback && openerRef.current?.isConnected) openerRef.current.focus();
       else onFallbackFocus?.();
     });
   };
   const [title, setTitle] = useState(source.title);
+  const [url, setUrl] = useState(source.url);
   const [folderId, setFolderId] = useState(source.folderId ?? "");
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [archiveAccepted, setArchiveAccepted] = useState(false);
   const [error, setError] = useState("");
+  const [conflicted, setConflicted] = useState(false);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const folderById = new Map(folders.map((folder) => [folder.id, folder]));
 
   /** Commits one mutation and only closes the dialog after the server confirms it. */
   const commit = async (archived: boolean) => {
-    if (pendingRef.current || (archived && !archiveAccepted)) return;
+    if (pendingRef.current || conflicted || (archived && !archiveAccepted)) return;
     pendingRef.current = true;
     setPending(true);
     setError("");
@@ -54,18 +57,27 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
       await request(`/sources/${encodeURIComponent(source.id)}`, archived
         ? { method: "DELETE" }
         : { method: "PATCH", body: JSON.stringify({
+          expectedGeneration: source.generation,
           ...(title.trim() !== source.title ? { title: title.trim() } : {}),
+          ...(url.trim() !== source.url ? { url: url.trim() } : {}),
           folderId: folderId || null,
         }) });
       await onCommitted(source.id, archived);
-      dismiss();
+      dismiss(archived || (folderId || null) !== source.folderId);
     } catch (cause) {
       setError(humanError(cause));
+      if (cause instanceof Error && cause.message === "SOURCE_VERSION_CONFLICT") {
+        // A stale draft must not be retried against a subscription the user has not seen.
+        setConflicted(true);
+        try { await onConflict(); }
+        catch { setError(`${humanError(cause)} 最新の設定を取得できませんでした。記事一覧の更新後に開き直してください。`); }
+      }
     } finally {
       pendingRef.current = false;
       setPending(false);
     }
   };
+  /** Submits only the editable draft; archive confirmation uses its separate action. */
   const save = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!confirmArchive) void commit(false);
@@ -74,10 +86,14 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
   return <dialog ref={dialogRef} aria-modal="true" className="modal modal-open z-50" aria-labelledby="source-settings-title" onCancel={(event) => { event.preventDefault(); if (!pendingRef.current) dismiss(); }}>
     <div className="modal-box">
       <h2 id="source-settings-title" className="mb-4 text-lg font-bold">購読設定：{source.title}</h2>
-      <p className="mb-4 break-all text-xs text-base-content/60">{source.url}</p>
       {error && <p role="alert" className="alert alert-error mb-4">{error}</p>}
       <form onSubmit={save}>
-        <fieldset className="space-y-4" disabled={pending || confirmArchive}>
+        <fieldset className="space-y-4" disabled={pending || confirmArchive || conflicted}>
+          <label className="form-control w-full">
+            <span className="label-text mb-1">RSS / Atom URL</span>
+            <input className="input input-bordered w-full" name="url" type="url" maxLength={2048} value={url} onChange={(event) => setUrl(event.currentTarget.value)} aria-describedby="source-url-help" required />
+          </label>
+          <p id="source-url-help" className="text-sm text-base-content/70">URLの変更後は次回の定期収集を待ちます。既存の記事・既読・保存状態は保持します。配信元の記事IDや記事URLが変わると、同じ内容でも新しい記事として登録される場合があります。</p>
           <label className="form-control w-full">
             <span className="label-text mb-1">表示名</span>
             <input className="input input-bordered w-full" name="title" maxLength={100} value={title} onChange={(event) => setTitle(event.currentTarget.value)} required />
@@ -101,10 +117,10 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
             <span>「{source.title}」の購読を解除します</span>
           </label>
           <div className="flex flex-wrap gap-2">
-            <button className="btn btn-error btn-sm" type="button" disabled={pending || !archiveAccepted} onClick={() => void commit(true)}>確認して購読解除</button>
-            <button className="btn btn-ghost btn-sm" type="button" disabled={pending} onClick={() => { setConfirmArchive(false); setArchiveAccepted(false); setError(""); }}>解除を取り消す</button>
+            <button className="btn btn-error btn-sm" type="button" disabled={pending || conflicted || !archiveAccepted} onClick={() => void commit(true)}>確認して購読解除</button>
+            <button className="btn btn-ghost btn-sm" type="button" disabled={pending || conflicted} onClick={() => { setConfirmArchive(false); setArchiveAccepted(false); setError(""); }}>解除を取り消す</button>
           </div>
-        </div> : <button className="btn btn-outline btn-error btn-sm mt-3" type="button" disabled={pending} onClick={() => { setConfirmArchive(true); setError(""); }}>購読解除…</button>}
+        </div> : <button className="btn btn-outline btn-error btn-sm mt-3" type="button" disabled={pending || conflicted} onClick={() => { setConfirmArchive(true); setError(""); }}>購読解除…</button>}
       </section>
       <div className="modal-action"><button className="btn btn-ghost" type="button" disabled={pending} onClick={() => { if (!pendingRef.current) dismiss(); }}>閉じる</button></div>
     </div>

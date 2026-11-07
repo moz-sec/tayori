@@ -1,0 +1,64 @@
+.tayori-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 100dvh;
+}
+.tayori-main-content {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  position: relative;
+}
+.tayori-sidebar-panel {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(20rem, 100vw);
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--color-base-content);
+  background: var(--color-base-100);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tayori-sidebar-panel::backdrop { background: rgb(0 0 0 / 0.4); }
+.tayori-sidebar-panel > .drawer-side {
+  position: static;
+  display: block;
+  width: 100%;
+  height: auto;
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  overflow: visible;
+}
+.tayori-sidebar-panel > .drawer-side > aside {
+  width: 100%;
+  min-height: 100dvh;
+  translate: none;
+  transform: none;
+  transition: none;
+  will-change: auto;
+}
+.tayori-sidebar-close {
+  position: absolute;
+  z-index: 1;
+  top: 1rem;
+  right: 1rem;
+}
+@media (min-width: 1024px) {
+  .tayori-shell[data-sidebar-open="true"] { grid-template-columns: 20rem minmax(0, 1fr); }
+  .tayori-shell[data-sidebar-open="true"] > .tayori-main-content { grid-column: 2; }
+  .tayori-sidebar-panel {
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    inset: auto;
+    top: 0;
+    width: 20rem;
+    max-width: none;
+  }
+}

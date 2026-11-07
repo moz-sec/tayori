@@ -35,14 +35,14 @@ export function ArticleList({ articles, nextCursor, loadMoreDisabled = false, up
 
 /** Renders an article summary and its read, save, and favorite actions. */
 function ArticleCard({ article, updatesDisabled, selected, selectionDisabled, onToggleSelection, onUpdate }: { article: Article; updatesDisabled: boolean; selected: boolean; selectionDisabled: boolean; onToggleSelection: ArticleListProps["onToggleSelection"]; onUpdate: ArticleListProps["onUpdate"] }) {
-  return <article className={`card border border-base-300 bg-base-100 shadow-sm transition-shadow hover:shadow-md ${article.read ? "opacity-75" : ""}`}>
-    <div className="card-body gap-3 p-5 sm:p-6">
+  return <article className={`card min-w-0 wrap-anywhere border border-base-300 bg-base-100 shadow-sm transition-shadow hover:shadow-md ${article.read ? "opacity-75" : ""}`}>
+    <div className="card-body min-w-0 gap-3 p-5 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/60">
         <label className="flex cursor-pointer items-center gap-2 text-base-content">
           <input type="checkbox" className="checkbox checkbox-sm" checked={selected} disabled={selectionDisabled} onChange={() => onToggleSelection(article.id)} aria-label={`「${article.title}」を選択`} />
           <span>選択</span>
         </label>
-        <span className="font-semibold text-primary">{article.sourceTitle}</span>
+        <span className="min-w-0 max-w-full font-semibold text-primary">{article.sourceTitle}</span>
         <span aria-hidden="true">·</span><time>{formatDate(article.publishedAt ?? article.expiresAt)}</time>
         {!article.read && <span className="badge badge-primary badge-xs">未読</span>}
       </div>
@@ -56,11 +56,12 @@ function ArticleCard({ article, updatesDisabled, selected, selectionDisabled, on
           {article.read ? "未読に戻す" : "既読にする"}
         </button>
         <button className={`btn btn-sm btn-ghost ${article.readLater ? "text-primary" : ""}`} disabled={updatesDisabled} aria-pressed={article.readLater} onClick={() => onUpdate(article, { readLater: !article.readLater }, article.readLater ? "保存を解除しました" : "あとで読むに保存しました")}>
-          {article.readLater ? "✓ あとで読む" : "あとで読む"}
+          {article.readLater && <span aria-hidden="true">✓ </span>}あとで読む
         </button>
         <button className={`btn btn-sm btn-ghost ${article.starred ? "text-warning" : ""}`} disabled={updatesDisabled} aria-pressed={article.starred} onClick={() => onUpdate(article, { starred: !article.starred }, article.starred ? "お気に入りを解除しました" : "お気に入りに追加しました")}>
-          <LuStar aria-hidden="true" className="mr-1" fill={article.starred ? "currentColor" : "none"} />{article.starred ? "お気に入り登録済み" : "お気に入り"}
+          <LuStar aria-hidden="true" className="mr-1" fill={article.starred ? "currentColor" : "none"} />お気に入り
         </button>
+        {article.starred && <span className="text-xs text-base-content/75">お気に入り登録済み</span>}
         <span className="ml-auto text-xs text-base-content/50">保存期限 {formatDate(article.expiresAt)}</span>
       </div>
     </div>
