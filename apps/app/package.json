@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "db:seed:local": "node ../../scripts/seed-local.mjs",
     "build": "vite build",
     "deploy": ": \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the remote D1 database ID}\" && : \"${ACCESS_TEAM_DOMAIN:?Set ACCESS_TEAM_DOMAIN}\" && : \"${ACCESS_AUD:?Set ACCESS_AUD}\" && : \"${ALLOWED_EMAIL:?Set ALLOWED_EMAIL}\" && secrets_file=$(mktemp) && trap 'rm -f \"$secrets_file\"' EXIT && printf 'ACCESS_TEAM_DOMAIN=%s\\nACCESS_AUD=%s\\nALLOWED_EMAIL=%s\\n' \"$ACCESS_TEAM_DOMAIN\" \"$ACCESS_AUD\" \"$ALLOWED_EMAIL\" > \"$secrets_file\" && npm run build && cf deploy --prebuilt --secrets-file \"$secrets_file\"",
     "typecheck": "cf workers types && tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
