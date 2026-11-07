@@ -135,4 +135,6 @@ FROM articles a JOIN board_articles ba ON ba.article_id = a.id
 WHERE a.starred = 0 AND a.read_later = 0;
 ```
 
-バックアップから旧スキーマを復元した場合も、同じ確認と保存指定を行ってからマイグレーションを適用する。
+バックアップから旧スキーマを復元した場合は、復元先 DB で上記の SQL を実行し、保持したい記事の ID を確認する。
+現行の UI と API では期限切れ記事の保存状態を更新できないため、マイグレーションを適用する前に、復元先 DB で対象の ID を指定して `starred` または `read_later` を `1` に更新する。
+その後、マイグレーションを適用する。

@@ -103,7 +103,7 @@ URLはフラグメント除去、host正規化等の安全な範囲だけを正�
 
 expires_at=first_seen_at+604800。read_atは保持に影響しない。
 
-削除条件は `expires_at <= now AND starred=0 AND read_later=0`。一覧でも同じ条件で期限切れの記事を除外する。記事は200行程度ずつ削除し、`item_keys`
+削除条件は `expires_at <= now AND starred=0 AND read_later=0`。一覧でも同じ条件で期限切れの記事を除外する。記事は最大100行ずつ削除し、`item_keys`
 は残す。
 
 保存APIと整理が競合した場合、保存が先なら保持、削除が先なら404を返す。成功していない保存をUIで確定表示しない。公開日時が欠ける記事は一覧の表示順にfirst_seen_atを使う。
