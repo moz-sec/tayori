@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { LuPanelLeftClose, LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
+import { articleEmptyState } from "./lib/article-empty-state";
 import { ArticleList } from "./components/ArticleList";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarPanel } from "./components/SidebarPanel";
@@ -56,8 +57,6 @@ export function App() {
   const [status, setStatus] = useState<{ activeSources: number; failingSources: number; lastTickAt: string | null } | null>(null);
   const [notice, setNotice] = useState("");
   const [noticeError, setNoticeError] = useState(false);
-  const noticeErrorRef = useRef(false);
-  useLayoutEffect(() => { noticeErrorRef.current = noticeError; }, [noticeError]);
   const [importItems, setImportItems] = useState<ImportOutline[] | null>(null);
   const [importSummary, setImportSummary] = useState("");
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
@@ -77,6 +76,7 @@ export function App() {
   const updatingArticlesRef = useRef(0);
   const [markReadResult, setMarkReadResult] = useState<MarkReadResult | null>(null);
   const [reloading, setReloading] = useState(false);
+  const [listFeedback, setListFeedback] = useState<{ view: string; mode: "refresh" | "append" | "background"; showProgress: boolean; error: string | null } | null>(null);
   const reloadingRef = useRef(false);
   const [loadedView, setLoadedView] = useState<string | null>(null);
   const loadedViewRef = useRef<string | null>(null);
@@ -95,7 +95,7 @@ export function App() {
   useLayoutEffect(() => { loadedViewRef.current = loadedView; }, [loadedView]);
 
   /** Reloads data in parallel and confirms success only when the current view accepts the result. */
-  const reload = useCallback(async (append = false, background = false, clearNotice = true): Promise<boolean> => {
+  const reload = useCallback(async (append = false, background = false, clearNotice = true, showProgress = false): Promise<boolean> => {
     const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
     if (view !== currentViewRef.current) return false;
     if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return false;
@@ -103,6 +103,7 @@ export function App() {
     const mutationVersion = getMutationState().version;
     reloadingRef.current = true;
     setReloading(true);
+    setListFeedback({ view, mode: background ? "background" : append ? "append" : "refresh", showProgress, error: null });
     try {
       const query = new URLSearchParams({ scope, limit: "50" });
       if (folderId) query.set("folderId", folderId);
@@ -143,10 +144,7 @@ export function App() {
     } catch (error) {
       if (version !== reloadVersion.current || view !== currentViewRef.current) return false;
       if (background && mutationVersion !== getMutationState().version) return false;
-      if (clearNotice || !noticeErrorRef.current) {
-        setNotice(humanError(error));
-        setNoticeError(true);
-      }
+      setListFeedback({ view, mode: background ? "background" : append ? "append" : "refresh", showProgress, error: humanError(error) });
       return false;
     } finally {
       if (version === reloadVersion.current && view === currentViewRef.current) {
@@ -356,6 +354,13 @@ export function App() {
     }
   };
 
+  const viewReady = loadedView === currentView;
+  const currentFeedback = listFeedback?.view === currentView ? listFeedback : null;
+  const listLoading = reloading || (!viewReady && !currentFeedback?.error)
+    ? !viewReady ? "initial" : currentFeedback?.mode === "background" && !currentFeedback.showProgress ? null : currentFeedback?.mode === "append" ? "append" : "refresh"
+    : null;
+  const emptyState = articleEmptyState({ scope, folderId, sourceId, folders, sources });
+
   const heading = sourceId ? sources.find((item) => item.id === sourceId)?.title
       : folderId ? folders.find((item) => item.id === folderId)?.name
         : scopeLabel(scope);
@@ -389,7 +394,7 @@ export function App() {
               : <button className="btn btn-ghost btn-sm" onClick={() => setMarkReadResult(null)}>閉じる</button>}
           </div>}
 
-          <ArticleList articles={articles} nextCursor={nextCursor} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} updatesDisabled={markingRead} selectedArticleIds={selectedArticleIds} selectionDisabled={reloading || markingRead || loadedView !== currentView} onToggleSelection={toggleArticleSelection} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
+          <ArticleList articles={viewReady ? articles : []} nextCursor={viewReady ? nextCursor : null} loading={listLoading} busy={reloading} error={currentFeedback?.error} emptyState={emptyState} onRetry={() => void reload(currentFeedback?.mode === "append", currentFeedback?.mode === "background", true, true)} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} updatesDisabled={markingRead || !viewReady} selectedArticleIds={selectedArticleIds} selectionDisabled={reloading || markingRead || loadedView !== currentView} onToggleSelection={toggleArticleSelection} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
         </main>
       </div>
 
@@ -431,8 +436,8 @@ export function App() {
         folders={folders}
         onClose={() => setSourceDialog(null)}
         onFallbackFocus={() => {
-          const target = !desktop ? document.getElementById("tayori-sidebar-close") : refreshButtonRef.current;
-          target?.focus({ preventScroll: true });
+          if (desktop) refreshButtonRef.current?.focus({ preventScroll: true });
+          else document.getElementById("tayori-sidebar-close")?.focus();
         }}
         onConflict={async () => {
           if (!await latestReload.current(false, false, false)) throw new Error("SOURCE_REFRESH_FAILED");
