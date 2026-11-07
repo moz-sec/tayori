@@ -27,6 +27,25 @@ export default defineConfig(({ mode }) => {
               : process.env.TAYORI_D1_DATABASE_ID) ?? "00000000-0000-4000-8000-000000000001",
         }),
         JOBS: bindings.queue<QueueMessage>({ name: queueName }),
+        ...(process.env.TAYORI_D1_USAGE_ENABLED === "true"
+          ? {
+              D1_USAGE_ENABLED: bindings.text("true"),
+              D1_ANALYTICS_TOKEN: bindings.secret(),
+              D1_ACCOUNT_ID: bindings.text(process.env.CLOUDFLARE_ACCOUNT_ID ?? ""),
+              D1_DATABASE_ID: bindings.text(
+                (preview
+                  ? process.env.TAYORI_PREVIEW_D1_DATABASE_ID
+                  : process.env.TAYORI_D1_DATABASE_ID) ?? "",
+              ),
+              D1_STORAGE_LIMIT_BYTES: bindings.text(
+                process.env.D1_STORAGE_LIMIT_BYTES ?? "419430400",
+              ),
+              D1_ROWS_READ_LIMIT: bindings.text(process.env.D1_ROWS_READ_LIMIT ?? "3000000"),
+              D1_ROWS_WRITTEN_LIMIT: bindings.text(process.env.D1_ROWS_WRITTEN_LIMIT ?? "60000"),
+              D1_WARNING_RATIO: bindings.text(process.env.D1_WARNING_RATIO ?? "0.875"),
+              D1_MAX_AGE_SECONDS: bindings.text(process.env.D1_MAX_AGE_SECONDS ?? "7200"),
+            }
+          : {}),
       },
       triggers: [
         triggers.scheduled({ schedule: "0 * * * *" }),

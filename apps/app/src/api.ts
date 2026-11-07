@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
 import { DEFAULT_RETENTION_DAYS, normalizeFeedUrl } from "@tayori/shared";
 import type { QueueMessage } from "@tayori/shared";
+import { readD1UsageStatus } from "@tayori/shared/d1-usage";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
 import { nextCollectionAt, loadCollectionSchedule } from "@tayori/shared/collection-schedule";
 import { collectionSettingsApi } from "./collection-settings-api";
@@ -705,7 +706,7 @@ api.delete("/boards/:id/articles/:articleId", async (c) => {
 });
 
 api.get("/status", async (c) => {
-  const [tick, failures, active] = await Promise.all([
+  const [tick, failures, active, d1Usage] = await Promise.all([
     c.env.DB.prepare("SELECT value FROM app_state WHERE key = 'last_tick'").first<{
       value: string;
     }>(),
@@ -715,12 +716,14 @@ api.get("/status", async (c) => {
     c.env.DB.prepare("SELECT COUNT(*) AS count FROM sources WHERE status = 'active'").first<{
       count: number;
     }>(),
+    readD1UsageStatus(c.env.DB),
   ]);
   return c.json({
     data: {
       lastTickAt: tick ? new Date(Number(tick.value) * 1000).toISOString() : null,
       activeSources: active?.count ?? 0,
       failingSources: failures?.count ?? 0,
+      d1Usage,
     },
   });
 });
@@ -787,6 +790,7 @@ async function enqueueInitialFetch(
   const now = unixNow();
   const jobId = crypto.randomUUID();
   try {
+    if ((await readD1UsageStatus(db)).state === "stopped") return;
     const inserted = await db
       .prepare(
         `INSERT INTO fetch_jobs(id, source_id, generation, status, created_at)

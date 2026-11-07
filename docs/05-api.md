@@ -94,11 +94,15 @@
   - 成功: 204
 
 - Method / Path: GET /status
-  - 入力・役割: 最終tick、active件数、失敗中件数
+  - 入力・役割: 最終tick、active件数、失敗中件数、D1利用量の状態
   - 成功: 200
 
 `scope` には `all`、`unread`、`read-later`、`starred` を指定します。フォルダを指定すると、その子孫にある購読先の記事も対象になります。`cursor` の順序キーは検証し、SQL
 に直接連結しません。
+
+`GET /status` の `data.d1Usage` は `state`、`reason`、`metrics`、`snapshot` を返す。
+状態は `disabled`、`ok`、`warning`、`stopped` で、取得不能・期限切れや上限到達時は取り込みを停止する。
+詳細は[D1利用量の監視](15-d1-usage.md)を参照する。
 
 ## 共通契約
 
