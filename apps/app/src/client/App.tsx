@@ -3,10 +3,12 @@ import { LuPanelLeftClose, LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
 import { articleEmptyState } from "./lib/article-empty-state";
 import { ArticleList } from "./components/ArticleList";
 import { Sidebar } from "./components/Sidebar";
+import { SidebarPanel } from "./components/SidebarPanel";
 import { getMutationState, request } from "./lib/api-client";
 import { startForegroundSync } from "./lib/foreground-sync";
 import { loadArticleWindow } from "./lib/article-window";
 import { SourceSettingsDialog } from "./components/SourceSettingsDialog";
+import { CollectionSettingsDialog } from "./components/CollectionSettingsDialog";
 import { parseOpmlFile } from "./lib/opml";
 import { importOpmlRows, summarizeImport, type ImportRow } from "./lib/opml-import";
 import { humanError } from "./lib/errors";
@@ -17,7 +19,26 @@ import type { Article, Folder, FolderDialog, ImportOutline, Page, Scope, Source 
 /** Owns application state and API actions, then composes the main interface. */
 export function App() {
   const refreshButtonRef = useRef<HTMLButtonElement>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  const [sidebarOpen, setSidebarOpen] = useState(desktop);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const articleHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const change = () => { setDesktop(media.matches); setSidebarOpen(media.matches); };
+    media.addEventListener("change", change);
+    return () => media.removeEventListener("change", change);
+  }, []);
+  const dismissSidebar = () => {
+    setSidebarOpen(false);
+    requestAnimationFrame(() => sidebarToggleRef.current?.focus({ preventScroll: true }));
+  };
+  const finishNavigation = () => {
+    if (!desktop) {
+      setSidebarOpen(false);
+      requestAnimationFrame(() => articleHeadingRef.current?.focus());
+    }
+  };
   const [scope, setScope] = useState<Scope>("all");
   const [folderId, setFolderId] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
@@ -27,8 +48,9 @@ export function App() {
   const folderMutationRef = useRef(false);
   const [sources, setSources] = useState<Source[]>([]);
   const [sourceDialog, setSourceDialog] = useState<Source | null>(null);
+  const [collectionSettingsOpen, setCollectionSettingsOpen] = useState(false);
   const dialogOpenRef = useRef(false);
-  useLayoutEffect(() => { dialogOpenRef.current = !!folderDialog || !!sourceDialog; }, [folderDialog, sourceDialog]);
+  useLayoutEffect(() => { dialogOpenRef.current = !!folderDialog || !!sourceDialog || collectionSettingsOpen; }, [folderDialog, sourceDialog, collectionSettingsOpen]);
   const [articles, setArticles] = useState<Article[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [retentionDays, setRetentionDays] = useState(7);
@@ -54,7 +76,7 @@ export function App() {
   const updatingArticlesRef = useRef(0);
   const [markReadResult, setMarkReadResult] = useState<MarkReadResult | null>(null);
   const [reloading, setReloading] = useState(false);
-  const [listFeedback, setListFeedback] = useState<{ view: string; mode: "refresh" | "append" | "background"; error: string | null } | null>(null);
+  const [listFeedback, setListFeedback] = useState<{ view: string; mode: "refresh" | "append" | "background"; showProgress: boolean; error: string | null } | null>(null);
   const reloadingRef = useRef(false);
   const [loadedView, setLoadedView] = useState<string | null>(null);
   const loadedViewRef = useRef<string | null>(null);
@@ -72,16 +94,16 @@ export function App() {
   }, [currentView, changeSelection]);
   useLayoutEffect(() => { loadedViewRef.current = loadedView; }, [loadedView]);
 
-  /** Reloads folders, feeds, account settings, status, and articles in parallel. */
-  const reload = useCallback(async (append = false, background = false, clearNotice = true) => {
+  /** Reloads data in parallel and confirms success only when the current view accepts the result. */
+  const reload = useCallback(async (append = false, background = false, clearNotice = true, showProgress = false): Promise<boolean> => {
     const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
-    if (view !== currentViewRef.current) return;
-    if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return;
+    if (view !== currentViewRef.current) return false;
+    if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return false;
     const version = ++reloadVersion.current;
     const mutationVersion = getMutationState().version;
     reloadingRef.current = true;
     setReloading(true);
-    setListFeedback({ view, mode: background ? "background" : append ? "append" : "refresh", error: null });
+    setListFeedback({ view, mode: background ? "background" : append ? "append" : "refresh", showProgress, error: null });
     try {
       const query = new URLSearchParams({ scope, limit: "50" });
       if (folderId) query.set("folderId", folderId);
@@ -99,12 +121,12 @@ export function App() {
           return request<Page<Article[]>>(`/articles?${pageQuery}`);
         }) : request<Page<Article[]>>(`/articles?${query}`),
       ]);
-      if (version !== reloadVersion.current || view !== currentViewRef.current) return;
-      if (background && (mutationVersion !== getMutationState().version || dialogOpenRef.current)) return;
+      if (version !== reloadVersion.current || view !== currentViewRef.current) return false;
+      if (background && (mutationVersion !== getMutationState().version || dialogOpenRef.current)) return false;
       setFolders(folderResult.data);
       setSources(sourceResult.data);
-      if (folderId && !folderResult.data.some((folder) => folder.id === folderId)) { setFolderId(null); return; }
-      if (sourceId && !sourceResult.data.some((source) => source.id === sourceId && source.status !== "archived")) { setSourceId(null); return; }
+      if (folderId && !folderResult.data.some((folder) => folder.id === folderId)) { setFolderId(null); return false; }
+      if (sourceId && !sourceResult.data.some((source) => source.id === sourceId && source.status !== "archived")) { setSourceId(null); return false; }
       setRetentionDays(me.data.retentionDays);
       setStatus(statusResult.data);
       setArticles((current) => append ? [...current, ...articleResult.data] : articleResult.data);
@@ -118,10 +140,12 @@ export function App() {
         setNotice("");
         setNoticeError(false);
       }
+      return true;
     } catch (error) {
-      if (version !== reloadVersion.current || view !== currentViewRef.current) return;
-      if (background && mutationVersion !== getMutationState().version) return;
-      setListFeedback({ view, mode: background ? "background" : append ? "append" : "refresh", error: humanError(error) });
+      if (version !== reloadVersion.current || view !== currentViewRef.current) return false;
+      if (background && mutationVersion !== getMutationState().version) return false;
+      setListFeedback({ view, mode: background ? "background" : append ? "append" : "refresh", showProgress, error: humanError(error) });
+      return false;
     } finally {
       if (version === reloadVersion.current && view === currentViewRef.current) {
         reloadingRef.current = false;
@@ -333,7 +357,7 @@ export function App() {
   const viewReady = loadedView === currentView;
   const currentFeedback = listFeedback?.view === currentView ? listFeedback : null;
   const listLoading = reloading || (!viewReady && !currentFeedback?.error)
-    ? !viewReady ? "initial" : currentFeedback?.mode === "background" ? null : currentFeedback?.mode === "append" ? "append" : "refresh"
+    ? !viewReady ? "initial" : currentFeedback?.mode === "background" && !currentFeedback.showProgress ? null : currentFeedback?.mode === "append" ? "append" : "refresh"
     : null;
   const emptyState = articleEmptyState({ scope, folderId, sourceId, folders, sources });
 
@@ -342,16 +366,15 @@ export function App() {
         : scopeLabel(scope);
 
   return (
-    <div data-theme="light" className="drawer relative min-h-screen bg-base-200 text-base-content">
-      <input id="tayori-drawer" type="checkbox" className="drawer-toggle" checked={sidebarOpen} onChange={(event) => setSidebarOpen(event.currentTarget.checked)} />
-      <div className="drawer-content flex min-h-screen flex-col">
-        <button className="fixed left-4 top-4 z-40 btn btn-square btn-ghost btn-sm bg-base-100/90" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"} title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}>
-          {sidebarOpen ? <LuPanelLeftClose /> : <LuPanelLeftOpen />}
+    <div data-theme="light" data-sidebar-open={sidebarOpen} className="tayori-shell bg-base-200 text-base-content">
+      <div className="tayori-main-content flex min-h-screen flex-col">
+        <button ref={sidebarToggleRef} className="absolute left-4 top-4 btn btn-square btn-ghost btn-sm bg-base-100/90" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? "サイドバーを隠す" : "サイドバーを開く"} aria-expanded={sidebarOpen} aria-controls="tayori-sidebar" title={sidebarOpen ? "サイドバーを隠す" : "サイドバーを開く"}>
+          {sidebarOpen ? <LuPanelLeftClose aria-hidden="true" /> : <LuPanelLeftOpen aria-hidden="true" />}
         </button>
         <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 sm:px-12 sm:py-14 lg:px-16">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">{heading}</h1>
+              <h1 ref={articleHeadingRef} tabIndex={-1} className="text-3xl font-bold tracking-tight">{heading}</h1>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <button ref={refreshButtonRef} className="btn btn-ghost btn-sm" onClick={() => void reload()} aria-label="更新"><LuRefreshCw /><span>更新</span></button>
@@ -371,10 +394,11 @@ export function App() {
               : <button className="btn btn-ghost btn-sm" onClick={() => setMarkReadResult(null)}>閉じる</button>}
           </div>}
 
-          <ArticleList articles={viewReady ? articles : []} nextCursor={viewReady ? nextCursor : null} loading={listLoading} busy={reloading} error={currentFeedback?.error} emptyState={emptyState} onRetry={() => void reload(currentFeedback?.mode === "append")} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} updatesDisabled={markingRead || !viewReady} selectedArticleIds={selectedArticleIds} selectionDisabled={reloading || markingRead || loadedView !== currentView} onToggleSelection={toggleArticleSelection} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
+          <ArticleList articles={viewReady ? articles : []} nextCursor={viewReady ? nextCursor : null} loading={listLoading} busy={reloading} error={currentFeedback?.error} emptyState={emptyState} onRetry={() => void reload(currentFeedback?.mode === "append", currentFeedback?.mode === "background", true, true)} loadMoreDisabled={reloading || markingRead || loadedView !== currentView} updatesDisabled={markingRead || !viewReady} selectedArticleIds={selectedArticleIds} selectionDisabled={reloading || markingRead || loadedView !== currentView} onToggleSelection={toggleArticleSelection} onUpdate={updateArticle} onLoadMore={() => void reload(true)} />
         </main>
       </div>
 
+      <SidebarPanel open={sidebarOpen} desktop={desktop} onDismiss={dismissSidebar}>
       <Sidebar
         scope={scope}
         folderId={folderId}
@@ -389,9 +413,9 @@ export function App() {
         importSummary={importSummary}
         importRows={importRows}
         busy={busy}
-        onScopeChange={(nextScope) => { setScope(nextScope); setFolderId(null); setSourceId(null); }}
-        onSelectFolder={(id) => { setFolderId(id); setSourceId(null); setScope("all"); }}
-        onSelectSource={(id) => { setSourceId(id); setFolderId(null); setScope("all"); }}
+        onScopeChange={(nextScope) => { setScope(nextScope); setFolderId(null); setSourceId(null); finishNavigation(); }}
+        onSelectFolder={(id) => { setFolderId(id); setSourceId(null); setScope("all"); finishNavigation(); }}
+        onSelectSource={(id) => { setSourceId(id); setFolderId(null); setScope("all"); finishNavigation(); }}
         onOpenFolderDialog={(dialog) => { if (!folderMutationRef.current) setFolderDialog(dialog); }}
         onCloseFolderDialog={() => { if (!folderMutationRef.current) setFolderDialog(null); }}
         onSaveFolder={saveFolder}
@@ -400,15 +424,24 @@ export function App() {
         onCreateSource={createSource}
         onToggleSource={toggleSource}
         onOpenSourceDialog={setSourceDialog}
+        onOpenCollectionSettings={() => setCollectionSettingsOpen(true)}
         onImportFile={(file) => void handleOpmlFile(file)}
         onImportOpml={() => void importOpml()}
       />
+      </SidebarPanel>
+      {collectionSettingsOpen && <CollectionSettingsDialog onClose={() => setCollectionSettingsOpen(false)} />}
       {sourceDialog && <SourceSettingsDialog
         key={sourceDialog.id}
         source={sourceDialog}
         folders={folders}
         onClose={() => setSourceDialog(null)}
-        onFallbackFocus={() => refreshButtonRef.current?.focus()}
+        onFallbackFocus={() => {
+          const target = !desktop ? document.getElementById("tayori-sidebar-close") : refreshButtonRef.current;
+          target?.focus({ preventScroll: true });
+        }}
+        onConflict={async () => {
+          if (!await latestReload.current(false, false, false)) throw new Error("SOURCE_REFRESH_FAILED");
+        }}
         onCommitted={async (id, archived) => {
           if (archived) setSourceId((current) => current === id ? null : current);
           await latestReload.current();

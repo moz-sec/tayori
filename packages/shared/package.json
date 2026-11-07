@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./fetch-jobs": "./src/fetch-jobs.ts"
+    "./fetch-jobs": "./src/fetch-jobs.ts",
+    "./collection-schedule": "./src/collection-schedule.ts"
   }
 }

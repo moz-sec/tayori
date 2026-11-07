@@ -12,9 +12,9 @@
 | PATCH /folders/:id | name, parentId, sortOrder | 200 |
 | POST /folders/:id/move | direction: up / down。同じ親の隣接フォルダと表示順を交換 | 204 |
 | DELETE /folders/:id | 子/購読を親に移動 | 204 |
-| GET /sources | active/paused/archived、取得状態、購読先別未読数 | 200 |
+| GET /sources | active/paused/archived、設定のgeneration、取得状態、購読先別未読数 | 200 |
 | POST /sources | url, folderId, title optional | 201（初回取得は非同期） |
-| PATCH /sources/:id | folderId, title, status | 200 |
+| PATCH /sources/:id | url, folderId, title, status, expectedGeneration（url指定時は必須） | 200 |
 | DELETE /sources/:id | アーカイブ化 | 204 |
 | POST /sources/import | sources配列（最大5件） | 200、追加/既存/エラー内訳 |
 | GET /subscriptions.opml | 購読とフォルダをXML出力 | 200 |
@@ -62,6 +62,18 @@
 ## フォルダの削除
 
 `DELETE /folders/:id` は直下の子フォルダと購読先を親へ移してフォルダだけを削除する。最上位フォルダを削除した場合、子フォルダは最上位、購読先は未分類へ移る。孫以下の階層、記事・既読・保存状態は維持する。移動と削除はD1の1つのbatchで行い、移動先の同名フォルダと衝突した場合は `409 FOLDER_DELETE_NAME_CONFLICT` を返して変更全体を取り消す。画面では子フォルダの改名や移動を案内し、失敗した確認画面を維持する。
+
+## 購読先の更新
+
+`PATCH /sources/:id` は表示名、所属フォルダ、状態とRSS / Atom URLを更新する。URLは登録時と同じHTTP/HTTPS・公開先URLの検証と正規化を行い、別の購読先と正規化後のURLが重複する場合は `409 SOURCE_ALREADY_EXISTS` を返して変更しない。
+
+購読先の一覧・登録・更新のレスポンスには設定の版 `generation` を含む。URLを含むPATCHでは、編集開始時に取得した版を `expectedGeneration` として指定する。不指定は `400 EXPECTED_SOURCE_GENERATION_REQUIRED`、版の不一致は `409 SOURCE_VERSION_CONFLICT` とし、他端末で先に保存された変更やジョブを変更しない。URL以外の更新でも `expectedGeneration` を渡せば同じ競合検出を行う。保存直前の競合も、SQLの更新条件で版を照合して検出する。
+
+正規化後のURLが変わると、`generation` を進めて旧URLの未完了ジョブを無効にする。URL変更と旧ジョブの無効化はD1の同じbatchで行い、失敗時は両方をロールバックする。取得中の旧レスポンスも保存時の世代確認で破棄する。ETag / Last-Modified、旧URLのサイト情報・成功失敗の診断と失敗後の待機期限はリセットする。
+
+URL保存では即時取得せず、共通の収集設定に従って次回予定を再計算する。一時停止中の購読先は変更後も停止し、再開時は次の収集境界と失敗後の待機期限を考慮する。再開だけでは待機期限を解除しない。新規登録時の初回取得は従来どおり別処理で行う。
+
+購読先IDと既存の記事キー・記事・既読・お気に入り・あとで読むは維持する。記事キーは購読先IDとGUID・Atom ID、または記事URL等から算出する。同じキーの配信は引き続き重複排除し、内容の更新でも既読・保存状態を保つ。配信元の移行でGUIDや記事URLが変われば別キーとなり、同じ内容でも新規記事として登録される場合がある。過去キーの再計算や記事の無断統合は行わない。
 
 ## 購読先の取得状況
 
