@@ -48,3 +48,5 @@ button, input, select { font: inherit; }
   .tayori-sidebar :is(button, a, summary), main button { max-width: 100%; overflow-wrap: anywhere; }
   main button { height: auto; white-space: normal; }
 }
+/* Feed names can contain long words or URLs without spaces. */
+main h1 { overflow-wrap: anywhere; }
