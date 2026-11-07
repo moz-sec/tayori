@@ -8,8 +8,6 @@ erDiagram
     FOLDERS o|--o{ SOURCES : contains
     SOURCES ||--o{ ITEM_KEYS : identifies
     ITEM_KEYS ||--o| ARTICLES : payload
-    ARTICLES ||--o{ BOARD_ARTICLES : saved
-    BOARDS ||--o{ BOARD_ARTICLES : contains
     SOURCES ||--o{ FETCH_JOBS : collects
     FOLDERS {
         string id PK
@@ -38,14 +36,6 @@ erDiagram
         boolean starred
         boolean read_later
         int version
-    }
-    BOARDS {
-        string id PK
-        string name UK
-    }
-    BOARD_ARTICLES {
-        string board_id PK, FK
-        string article_id PK, FK
     }
     FETCH_JOBS {
         string id PK
@@ -83,12 +73,6 @@ IDはUUID等の不透明文字列、日時はUTCのUnix時刻（秒）に統一�
   - 主な列・制約: id=item_keys.id, title, url, summary_text, published_at nullable, content_hash, read_at nullable, starred,
     read_later, first_seen_at, expires_at, updated_at, version
 
-- テーブル: boards
-  - 主な列・制約: id, name UNIQUE, sort_order
-
-- テーブル: board_articles
-  - 主な列・制約: board_id, article_id, created_at。複合主キー
-
 - テーブル: fetch_jobs
   - 主な列・制約: id, source_id, generation, status(pending/sent/running/done/failed), lease_until, attempts, created_at,
     completed_at。稼働中ジョブは購読先ごとに1件
@@ -119,8 +103,8 @@ URLはフラグメント除去、host正規化等の安全な範囲だけを正�
 
 expires_at=first_seen_at+604800。read_atは保持に影響しない。
 
-削除条件は `expires_at <= now AND starred=0 AND read_later=0 AND ボード所属なし`。一覧でも同じ条件で期限切れの記事を除外する。記事は200行程度ずつ削除し、`item_keys`
-は残す。ボードに保存されているかどうかは削除 SQL 内で再確認し、事前に取得した古い状態だけを根拠に削除しない。
+削除条件は `expires_at <= now AND starred=0 AND read_later=0`。一覧でも同じ条件で期限切れの記事を除外する。記事は最大100行ずつ削除し、`item_keys`
+は残す。
 
 保存APIと整理が競合した場合、保存が先なら保持、削除が先なら404を返す。成功していない保存をUIで確定表示しない。公開日時が欠ける記事は一覧の表示順にfirst_seen_atを使う。
 
@@ -130,14 +114,12 @@ expires_at=first_seen_at+604800。read_atは保持に影響しない。
 - articles(first_seen_at DESC,id DESC)
 - articles(read_at,first_seen_at DESC,id DESC)
 - articles(expires_at)、item_keys(source_id,key_hash) UNIQUE
-- board_articles(article_id) と複合主キー(board_id,article_id)
 - fetch_jobs(status,lease_until)、fetch_jobs(source_id,generation)
 
 一覧はcursor pagination。OFFSETで全履歴を走査しない。フォルダ階層の検索は循環を排除した再帰CTEを候補とし、実測で読取行数を確認する。保存フラグの追加インデックスは必要になるまで増やさない。
 
 ## 6. 削除と復元
 
-folders削除は所属を親へ移動。boards削除はboard_articlesを削除。sourcesはアーカイブ化して保存記事・識別情報を保持。articlesの物理削除ではboard_articlesをCASCADEにできるが、
-通常の期限整理は所属ありを対象にしない。
+folders削除は所属を親へ移動。sourcesはアーカイブ化して保存記事・識別情報を保持。期限切れ記事は保存状態を削除 SQL 内で確認してから削除する。
 
 SQL バックアップにはすべてのテーブルを含める。復元後は古い `running` / `sent` 状態のジョブを無効にし、`generation` を更新して Queue 内の古いメッセージを拒否する。
