@@ -22,6 +22,8 @@ button, input, select { font: inherit; }
   font-size: 1.2rem;
   font-weight: 500;
 }
+/* Limit the scrolling drawer to the sidebar so it cannot intercept article controls. */
+.drawer > .drawer-side { width: min(20rem, 100vw); }
 .tayori-sidebar { box-shadow: 6px 0 18px rgb(0 0 0 / 0.08); }
 
 /* Feed names can contain long words or URLs without spaces. */

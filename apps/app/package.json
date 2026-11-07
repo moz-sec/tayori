@@ -6,11 +6,13 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "deploy": ": \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the remote D1 database ID}\" && : \"${ACCESS_TEAM_DOMAIN:?Set ACCESS_TEAM_DOMAIN}\" && : \"${ACCESS_AUD:?Set ACCESS_AUD}\" && : \"${ALLOWED_EMAIL:?Set ALLOWED_EMAIL}\" && secrets_file=$(mktemp) && trap 'rm -f \"$secrets_file\"' EXIT && printf 'ACCESS_TEAM_DOMAIN=%s\\nACCESS_AUD=%s\\nALLOWED_EMAIL=%s\\n' \"$ACCESS_TEAM_DOMAIN\" \"$ACCESS_AUD\" \"$ALLOWED_EMAIL\" > \"$secrets_file\" && npm run build && cf deploy --prebuilt --secrets-file \"$secrets_file\"",
-    "typecheck": "cf workers types && tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
+    "typecheck": "cf workers types && tsc --noEmit && tsc --noEmit -p tsconfig.client.json && tsc --noEmit -p tsconfig.e2e.json",
     "test": "vitest run --passWithNoTests --config vitest.config.ts",
     "db:migrate:local": "cf d1 migrations apply \"${TAYORI_D1_DATABASE_ID:-00000000-0000-4000-8000-000000000001}\" --dir ../../migrations --local --persist-to .cloudflare/state",
     "db:migrate:remote": "cf d1 migrations apply \"${TAYORI_D1_DATABASE_ID:?Set TAYORI_D1_DATABASE_ID to the D1 database ID}\" --dir ../../migrations",
-    "db:migrate:preview": "cf d1 migrations apply \"${TAYORI_PREVIEW_D1_DATABASE_ID:?Set TAYORI_PREVIEW_D1_DATABASE_ID to the preview D1 database ID}\" --dir ../../migrations --mode preview"
+    "db:migrate:preview": "cf d1 migrations apply \"${TAYORI_PREVIEW_D1_DATABASE_ID:?Set TAYORI_PREVIEW_D1_DATABASE_ID to the preview D1 database ID}\" --dir ../../migrations --mode preview",
+    "dev:e2e": "vite --config vite.e2e.config.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@hono/swagger-ui": "^0.6.1",
@@ -26,6 +28,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^2.0.0-beta.v.7",
     "@cloudflare/workers-types": "^5.20260929.1",
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
