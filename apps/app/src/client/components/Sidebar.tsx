@@ -3,7 +3,7 @@ import { FolderDialog as FolderDialogModal } from "./FolderDialog";
 import { SourceCreateForm } from "./SourceCreateForm";
 import { humanError } from "../lib/errors";
 import type { ImportRow } from "../lib/opml-import";
-import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss, LuChevronDown, LuChevronRight, LuArrowUp, LuArrowDown } from "react-icons/lu";
+import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss, LuChevronDown, LuChevronRight, LuArrowUp, LuArrowDown, LuEllipsis } from "react-icons/lu";
 import { flattenFolders, readCollapsedFolders, saveCollapsedFolders } from "../lib/folder-tree";
 import { formatDate } from "../lib/format";
 import { feedErrorMessage } from "../lib/feed-status";
@@ -64,6 +64,10 @@ export function Sidebar(props: SidebarProps) {
   const movingFolderRef = useRef(false);
   const [movingFolder, setMovingFolder] = useState<string | null>(null);
   useEffect(() => { saveCollapsedFolders(collapsedFolders); }, [collapsedFolders]);
+  const [actionFolderId, setActionFolderId] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (actionFolderId) document.getElementById(`folder-actions-${actionFolderId}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [actionFolderId]);
   const flatFolders = flattenFolders(folders);
   const visibleFolders = flattenFolders(folders, collapsedFolders);
   const toggleFolder = (id: string) => setCollapsedFolders((current) => {
@@ -103,15 +107,18 @@ export function Sidebar(props: SidebarProps) {
                 <button aria-current={folderId === folder.id ? "page" : undefined} className={(folderId === folder.id ? "active " : "") + "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"} style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }} onClick={() => onSelectFolder(folder.id)}>
                   <LuFolder className="shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>{folder.unreadCount > 0 && <span className="badge badge-sm shrink-0">{folder.unreadCount}</span>}
                 </button>
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を上へ移動`} title="同じ親の中で上へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId)[0]?.id === folder.id} onClick={() => void moveFolder(folder.id, "up")}><LuArrowUp aria-hidden="true" /></button>
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を下へ移動`} title="同じ親の中で下へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id === folder.id} onClick={() => void moveFolder(folder.id, "down")}><LuArrowDown aria-hidden="true" /></button>
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Add subfolder to ${folder.name}`} title="Add subfolder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus aria-hidden="true" /></button>
-                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`Settings for ${folder.name}`} title="Folder settings" onClick={() => onOpenFolderDialog({ mode: "edit", folder })}><LuSettings aria-hidden="true" /></button>
+                <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}の操作`} aria-expanded={actionFolderId === folder.id} aria-controls={`folder-actions-${folder.id}`} onClick={() => setActionFolderId((current) => current === folder.id ? null : folder.id)}><LuEllipsis aria-hidden="true" /></button>
               </div>
+              {actionFolderId === folder.id && <div id={`folder-actions-${folder.id}`} className="tayori-folder-actions" role="group" aria-label={`${folder.name}の操作`}>
+                <button className="btn btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を上へ移動`} title="同じ親の中で上へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId)[0]?.id === folder.id} onClick={() => void moveFolder(folder.id, "up")}><LuArrowUp aria-hidden="true" /><span>上へ移動</span></button>
+                <button className="btn btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を下へ移動`} title="同じ親の中で下へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id === folder.id} onClick={() => void moveFolder(folder.id, "down")}><LuArrowDown aria-hidden="true" /><span>下へ移動</span></button>
+                <button className="btn btn-ghost btn-xs shrink-0" aria-label={`Add subfolder to ${folder.name}`} title="Add subfolder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus aria-hidden="true" /><span>子フォルダを追加</span></button>
+                <button className="btn btn-ghost btn-xs shrink-0" aria-label={`Settings for ${folder.name}`} title="Folder settings" onClick={() => onOpenFolderDialog({ mode: "edit", folder })}><LuSettings aria-hidden="true" /><span>フォルダ設定</span></button>
+              </div>}
               {!collapsedFolders.has(folder.id) && sources.filter((source) => source.folderId === folder.id && source.status !== "archived").map((source) => <SourceItem key={source.id} source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} onSettings={onOpenSourceDialog} />)}
             </li>)}
           </ul>
-          <p className="mt-1 px-2 text-xs text-base-content/55">折りたたみはこのブラウザーに保存。↑↓で同じ親の中の表示順を変更します。</p>
+          <p className="mt-1 px-2 text-xs text-base-content/55">折りたたみはこのブラウザーに保存します。フォルダの操作メニューから表示順を変更できます。</p>
         </section>
 
         <section className="mt-7">
