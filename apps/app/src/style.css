@@ -23,3 +23,6 @@ button, input, select { font: inherit; }
   font-weight: 500;
 }
 .tayori-sidebar { box-shadow: 6px 0 18px rgb(0 0 0 / 0.08); }
+
+/* Feed names can contain long words or URLs without spaces. */
+main h1 { overflow-wrap: anywhere; }
