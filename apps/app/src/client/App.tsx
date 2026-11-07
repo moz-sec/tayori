@@ -461,8 +461,8 @@ export function App() {
         folders={folders}
         onClose={() => setSourceDialog(null)}
         onFallbackFocus={() => {
-          const target = !desktop ? document.getElementById("tayori-sidebar-close") : refreshButtonRef.current;
-          target?.focus({ preventScroll: true });
+          if (desktop) refreshButtonRef.current?.focus({ preventScroll: true });
+          else document.getElementById("tayori-sidebar-close")?.focus();
         }}
         onConflict={async () => {
           if (!await latestReload.current(false, false, false)) throw new Error("SOURCE_REFRESH_FAILED");
