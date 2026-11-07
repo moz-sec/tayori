@@ -6,6 +6,7 @@ import type { ImportRow } from "../lib/opml-import";
 import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss, LuChevronDown, LuChevronRight, LuArrowUp, LuArrowDown, LuEllipsis } from "react-icons/lu";
 import { flattenFolders, readCollapsedFolders, saveCollapsedFolders } from "../lib/folder-tree";
 import { formatDate } from "../lib/format";
+import { isPlainNavigation, navigationHref } from "../lib/navigation";
 import { feedErrorMessage } from "../lib/feed-status";
 import type { Folder, FolderDialog, ImportOutline, Scope, Source } from "../types";
 
@@ -91,9 +92,9 @@ export function Sidebar(props: SidebarProps) {
         </div>
         <nav aria-label="記事の絞り込み" className="menu menu-sm gap-1 p-0">
           {(["all", "unread", "read-later", "starred"] as Scope[]).map((item) => <li key={item}>
-            <button aria-current={scope === item && !folderId && !sourceId ? "page" : undefined} className={scope === item && !folderId && !sourceId ? "active" : ""} onClick={() => onScopeChange(item)}>
+            <a aria-current={scope === item && !folderId && !sourceId ? "page" : undefined} href={navigationHref({ scope: item, folderId: null, sourceId: null }, typeof window === "undefined" ? "/" : window.location.href)} className={scope === item && !folderId && !sourceId ? "active" : ""} onClick={(event) => { if (isPlainNavigation(event)) { event.preventDefault(); onScopeChange(item); } }}>
               <span className="flex w-5 justify-center">{scopeIcon(item)}</span>{scopeLabel(item)}
-            </button>
+            </a>
           </li>)}
         </nav>
 
@@ -106,9 +107,9 @@ export function Sidebar(props: SidebarProps) {
             {visibleFolders.map((folder) => <li key={folder.id} className="w-full">
               <div className="flex w-full min-w-0 flex-nowrap items-center gap-0.5">
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-expanded={!collapsedFolders.has(folder.id)} aria-label={`${folder.name}を${collapsedFolders.has(folder.id) ? "展開" : "折りたたむ"}`} onClick={() => toggleFolder(folder.id)}>{collapsedFolders.has(folder.id) ? <LuChevronRight aria-hidden="true" /> : <LuChevronDown aria-hidden="true" />}</button>
-                <button aria-current={folderId === folder.id ? "page" : undefined} className={(folderId === folder.id ? "active " : "") + "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"} style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }} onClick={() => onSelectFolder(folder.id)}>
+                <a aria-current={folderId === folder.id ? "page" : undefined} href={navigationHref({ scope: "all", folderId: folder.id, sourceId: null }, typeof window === "undefined" ? "/" : window.location.href)} className={(folderId === folder.id ? "active " : "") + "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"} style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }} onClick={(event) => { if (isPlainNavigation(event)) { event.preventDefault(); onSelectFolder(folder.id); } }}>
                   <LuFolder className="shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>{folder.unreadCount > 0 && <span className="badge badge-sm shrink-0">{folder.unreadCount}</span>}
-                </button>
+                </a>
                 <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${folder.name}の操作`} aria-expanded={actionFolderId === folder.id} aria-controls={`folder-actions-${folder.id}`} onClick={() => setActionFolderId((current) => current === folder.id ? null : folder.id)}><LuEllipsis aria-hidden="true" /></button>
               </div>
               {actionFolderId === folder.id && <div id={`folder-actions-${folder.id}`} className="tayori-folder-actions" role="group" aria-label={`${folder.name}の操作`}>
@@ -179,10 +180,10 @@ function SourceItem({ source, selected, onSelect, onToggle, onSettings }: {
 }) {
   return <div className="block! w-full min-w-0 p-1!">
     <div className="flex min-w-0 items-center gap-1">
-      <button aria-current={selected ? "page" : undefined} className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`} title={source.title} onClick={() => onSelect(source.id)}>
+      <a aria-current={selected ? "page" : undefined} href={navigationHref({ scope: "all", folderId: null, sourceId: source.id }, typeof window === "undefined" ? "/" : window.location.href)} className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`} title={source.title} onClick={(event) => { if (isPlainNavigation(event)) { event.preventDefault(); onSelect(source.id); } }}>
         <span className="min-w-0 flex-1 truncate">{source.title}</span>
         <span className="badge badge-sm shrink-0" aria-label={`未読${source.unreadCount}件`}>{source.unreadCount}</span>
-      </button>
+      </a>
       <button className="btn btn-ghost btn-xs shrink-0" onClick={() => onToggle(source)} aria-label={`${source.title}を${source.status === "active" ? "一時停止" : "再開"}`} title={source.status === "active" ? "一時停止" : "再開"}>{source.status === "active" ? <LuPause aria-hidden="true" /> : <LuPlay aria-hidden="true" />}</button>
       <button className="btn btn-square btn-ghost btn-xs shrink-0" aria-label={`${source.title}の購読設定`} title="購読設定" onClick={() => onSettings(source)}><LuSettings aria-hidden="true" /></button>
     </div>
