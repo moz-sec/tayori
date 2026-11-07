@@ -18,7 +18,7 @@ interface ArticleListProps {
 export function ArticleList({ articles, nextCursor, loadMoreDisabled = false, updatesDisabled = false, selectedArticleIds, selectionDisabled, onToggleSelection, onUpdate, onLoadMore }: ArticleListProps) {
   const selectedIds = new Set(selectedArticleIds);
   if (articles.length === 0) {
-    return <div className="card border border-base-300 bg-base-100 shadow-sm">
+    return <div className="card border border-base-300 bg-base-100">
       <div className="card-body items-center py-16 text-center">
         <LuMail className="text-4xl text-primary/60" aria-hidden="true" />
         <h2 className="card-title mt-2">記事はまだありません</h2>
@@ -28,15 +28,15 @@ export function ArticleList({ articles, nextCursor, loadMoreDisabled = false, up
   }
 
   return <>
-    <div className="space-y-4">{articles.map((article) => <ArticleCard key={article.id} article={article} updatesDisabled={updatesDisabled} selected={selectedIds.has(article.id)} selectionDisabled={selectionDisabled} onToggleSelection={onToggleSelection} onUpdate={onUpdate} />)}</div>
+    <div className="divide-y divide-base-300 overflow-hidden rounded-box border border-base-300 bg-base-100">{articles.map((article) => <ArticleCard key={article.id} article={article} updatesDisabled={updatesDisabled} selected={selectedIds.has(article.id)} selectionDisabled={selectionDisabled} onToggleSelection={onToggleSelection} onUpdate={onUpdate} />)}</div>
     {nextCursor && <div className="mt-7 text-center"><button className="btn btn-outline" disabled={loadMoreDisabled} onClick={onLoadMore}>さらに読み込む</button></div>}
   </>;
 }
 
 /** Renders an article summary and its read, save, and favorite actions. */
 function ArticleCard({ article, updatesDisabled, selected, selectionDisabled, onToggleSelection, onUpdate }: { article: Article; updatesDisabled: boolean; selected: boolean; selectionDisabled: boolean; onToggleSelection: ArticleListProps["onToggleSelection"]; onUpdate: ArticleListProps["onUpdate"] }) {
-  return <article className={`card min-w-0 wrap-anywhere border border-base-300 bg-base-100 shadow-sm transition-shadow hover:shadow-md ${article.read ? "opacity-75" : ""}`}>
-    <div className="card-body min-w-0 gap-3 p-5 sm:p-6">
+  return <article className={`card min-w-0 wrap-anywhere rounded-none bg-base-100 ${article.read ? "opacity-75" : ""}`}>
+    <div className="card-body min-w-0 gap-3 p-4 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/60">
         <label className="flex cursor-pointer items-center gap-2 text-base-content">
           <input type="checkbox" className="checkbox checkbox-sm" checked={selected} disabled={selectionDisabled} onChange={() => onToggleSelection(article.id)} aria-label={`「${article.title}」を選択`} />

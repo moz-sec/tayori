@@ -77,26 +77,26 @@ export function FolderDialog({ dialog, folders, busy, onClose, onSave, onDelete,
 
   return <dialog ref={dialogRef} className="modal modal-open z-50" aria-modal="true" aria-labelledby="folder-dialog-title" aria-busy={busy || pending} onCancel={(event) => { event.preventDefault(); event.stopPropagation(); dismiss(); }}>
     <div className="modal-box">
-      <h2 ref={headingRef} id="folder-dialog-title" tabIndex={-1} className="mb-4 text-lg font-bold">{dialog.mode === "create" ? "New folder" : "Folder settings"}</h2>
+      <h2 ref={headingRef} id="folder-dialog-title" tabIndex={-1} className="mb-4 text-lg font-bold">{dialog.mode === "create" ? "フォルダを作成" : "フォルダ設定"}</h2>
       <form ref={formRef} onSubmit={(event) => void submit(event)} onInput={() => setError(null)}>
         {error && !error.field && errorMessage}
         <fieldset className="space-y-4" disabled={busy || pending}>
           <label className="form-control w-full">
-            <span className="label-text mb-1">Folder name</span>
-            <input ref={nameRef} className="input input-bordered w-full" name="name" maxLength={100} defaultValue={dialog.mode === "edit" ? dialog.folder.name : ""} placeholder="Folder name" autoComplete="off" required aria-invalid={error?.field === "name" || undefined} aria-describedby={error?.field === "name" ? "folder-form-error" : undefined} />
+            <span className="label-text mb-1">フォルダ名</span>
+            <input ref={nameRef} className="input input-bordered w-full" name="name" maxLength={100} defaultValue={dialog.mode === "edit" ? dialog.folder.name : ""} placeholder="フォルダ名" autoComplete="off" required aria-invalid={error?.field === "name" || undefined} aria-describedby={error?.field === "name" ? "folder-form-error" : undefined} />
           </label>
           {error?.field === "name" && errorMessage}
           <label className="form-control w-full">
-            <span className="label-text mb-1">Parent folder</span>
+            <span className="label-text mb-1">親フォルダ</span>
             <select aria-invalid={error?.field === "parentId" || undefined} aria-describedby={error?.field === "parentId" ? "folder-form-error" : undefined} className="select select-bordered w-full" name="parentId" defaultValue={dialog.mode === "create" ? dialog.parentId ?? "" : dialog.folder.parentId ?? ""}>
-              <option value="">Top level</option>
+              <option value="">最上位</option>
               {flatFolders.filter((folder) => dialog.mode === "create" || folder.id !== dialog.folder.id).map((folder) => <option key={folder.id} value={folder.id}>{"　".repeat(folder.depth)}{folder.name}</option>)}
             </select>
           </label>
           {error?.field === "parentId" && errorMessage}
           <div className="modal-action">
-            <button type="button" className="btn btn-ghost" onClick={dismiss}>Cancel</button>
-            <button type="submit" className="btn btn-primary">{busy || pending ? "処理中…" : dialog.mode === "create" ? "Create" : "Save"}</button>
+            <button type="button" className="btn btn-ghost" onClick={dismiss}>キャンセル</button>
+            <button type="submit" className="btn btn-primary">{busy || pending ? "処理中…" : dialog.mode === "create" ? "フォルダを作成" : "変更を保存"}</button>
           </div>
         </fieldset>
       </form>

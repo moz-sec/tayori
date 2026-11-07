@@ -8,21 +8,20 @@
   font-optical-sizing: auto;
 }
 
-body { min-width: 320px; min-height: 100vh; margin: 0; }
+body { min-width: 320px; min-height: 100vh; margin: 0; font-size: 1rem; line-height: 1.5; }
 button, input, select { font: inherit; }
-.tayori-mark {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  place-items: center;
-  border: 1px solid #819487;
-  border-radius: 50% 50% 45% 45%;
-  color: #3f5b4b;
-  font-family: Georgia, serif;
-  font-size: 1.2rem;
-  font-weight: 500;
-}
-.tayori-sidebar { box-shadow: 6px 0 18px rgb(0 0 0 / 0.08); }
 
+/* Shared interaction treatment; palette and radii stay owned by daisyUI. */
+:where(button, a, input, select, summary):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.drawer-side, .drawer-side > *, .modal, .modal-box, .btn, .link, .checkbox) {
+    transition-duration: 0s !important;
+    animation: none !important;
+  }
+}
 /* Feed names can contain long words or URLs without spaces. */
 main h1 { overflow-wrap: anywhere; }

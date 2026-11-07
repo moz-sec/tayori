@@ -55,7 +55,7 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
         <label htmlFor={folderId} className="block text-xs font-semibold">所属フォルダ</label>
         <select id={folderId} className="select select-bordered select-sm mt-1 w-full" name="folderId" defaultValue=""><option value="">未分類</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{"　".repeat(folder.depth)}{folder.name}</option>)}</select>
       </div>
-      <button className="btn btn-primary btn-sm w-full" type="submit">{pending ? "追加中…" : "追加"}</button>
+      <button className="btn btn-primary btn-sm w-full" type="submit">{pending ? "購読先を追加中…" : "購読先を追加"}</button>
     </fieldset>
   </form>;
 }
