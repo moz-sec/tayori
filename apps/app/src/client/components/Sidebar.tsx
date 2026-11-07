@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { FolderDialog as FolderDialogModal } from "./FolderDialog";
+import { SourceCreateForm } from "./SourceCreateForm";
+import { humanError } from "../lib/errors";
 import type { ImportRow } from "../lib/opml-import";
 import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss, LuChevronDown, LuChevronRight, LuArrowUp, LuArrowDown } from "react-icons/lu";
 import { flattenFolders, readCollapsedFolders, saveCollapsedFolders } from "../lib/folder-tree";
@@ -27,13 +29,13 @@ interface SidebarProps {
   onMoveFolder: (id: string, direction: "up" | "down") => Promise<void>;
   onOpenFolderDialog: (dialog: FolderDialog) => void;
   onCloseFolderDialog: () => void;
-  onSaveFolder: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveFolder: (event: FormEvent<HTMLFormElement>) => Promise<void> | void;
   onDeleteFolder: (folder: Folder) => Promise<void>;
-  onCreateSource: (event: FormEvent<HTMLFormElement>) => void;
+  onCreateSource: (event: FormEvent<HTMLFormElement>) => Promise<void> | void;
   onToggleSource: (source: Source) => void;
   onOpenSourceDialog: (source: Source) => void;
   onOpenCollectionSettings?: () => void;
-  onImportFile: (file: File | undefined) => void;
+  onImportFile: (file: File | undefined) => Promise<void> | void;
   onImportOpml: () => void;
 }
 
@@ -44,6 +46,20 @@ export function Sidebar(props: SidebarProps) {
     importSummary, importRows, busy, onScopeChange, onSelectFolder, onSelectSource, onOpenFolderDialog,
     onMoveFolder, onCloseFolderDialog, onSaveFolder, onDeleteFolder, folderBusy, onCreateSource, onToggleSource, onOpenSourceDialog, onImportFile, onImportOpml,
   } = props;
+  const [importError, setImportError] = useState("");
+  const [parsingImport, setParsingImport] = useState(false);
+  const parsingImportRef = useRef(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => { if (importError && !parsingImport) importInputRef.current?.focus(); }, [importError, parsingImport]);
+  const selectImportFile = async (file: File | undefined) => {
+    if (!file || busy || parsingImportRef.current) return;
+    parsingImportRef.current = true;
+    setParsingImport(true);
+    setImportError("");
+    try { await onImportFile(file); }
+    catch (cause) { setImportError(humanError(cause)); }
+    finally { parsingImportRef.current = false; setParsingImport(false); }
+  };
   const [collapsedFolders, setCollapsedFolders] = useState(readCollapsedFolders);
   const movingFolderRef = useRef(false);
   const [movingFolder, setMovingFolder] = useState<string | null>(null);
@@ -103,16 +119,15 @@ export function Sidebar(props: SidebarProps) {
           <div className="menu menu-sm max-h-56 flex-nowrap overflow-y-auto p-0">
             {sources.filter((source) => source.status !== "archived" && !source.folderId).map((source) => <li key={source.id}><SourceItem source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} onSettings={onOpenSourceDialog} /></li>)}
           </div>
-          <form className="mt-3 space-y-2 rounded-box bg-base-200 p-3" onSubmit={onCreateSource}>
-            <p className="text-xs font-semibold">購読先を追加</p>
-            <input className="input input-bordered input-sm w-full" name="url" type="url" maxLength={2048} placeholder="https://example.com/feed.xml" required />
-            <input className="input input-bordered input-sm w-full" name="title" maxLength={100} placeholder="表示名（任意）" />
-            <select className="select select-bordered select-sm w-full" name="folderId" defaultValue=""><option value="">未分類</option>{flatFolders.map((folder) => <option key={folder.id} value={folder.id}>{"　".repeat(folder.depth)}{folder.name}</option>)}</select>
-            <button className="btn btn-primary btn-sm w-full" type="submit">追加</button>
-          </form>
+          <SourceCreateForm folders={flatFolders} onSubmit={onCreateSource} />
           <div className="mt-3 space-y-2 rounded-box bg-base-200 p-3">
-            <p className="text-xs font-semibold">OPMLを読み込む</p>
-            <input className="file-input file-input-bordered file-input-xs w-full" type="file" disabled={busy} accept=".opml,.xml,text/xml,application/xml" onChange={(event) => onImportFile(event.currentTarget.files?.[0])} />
+            <label htmlFor="opml-file" className="block text-xs font-semibold">OPMLファイルを読み込む</label>
+            <input ref={importInputRef} id="opml-file" name="opml" className="file-input file-input-bordered file-input-xs w-full" type="file" disabled={busy || parsingImport} accept=".opml,.xml,text/xml,application/xml" aria-invalid={!!importError || undefined} aria-describedby={importError ? "opml-file-error" : undefined} onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              void selectImportFile(file);
+            }} />
+            {importError && <p id="opml-file-error" role="alert" className="text-sm text-error">{importError}</p>}
             {importSummary && <p role="status" className="text-xs text-base-content/70">{importSummary}</p>}
             {importRows.some((row) => row.status === "error" || row.status === "pending") && <ul className="max-h-56 space-y-2 overflow-y-auto text-xs" aria-label="OPML取り込みの未完了項目">
               {importRows.map((row, index) => row.status === "error" || row.status === "pending" ? <li key={index} className="break-all">
