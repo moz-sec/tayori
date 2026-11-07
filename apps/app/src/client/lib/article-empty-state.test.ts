@@ -8,10 +8,10 @@ describe("article empty state", () => {
     expect(articleEmptyState(base).title).toBe("購読先を追加しましょう");
     expect(articleEmptyState({ ...base, sources: [source] }).title).toBe("記事の初回取得を待っています");
   });
-  it("does not ask users to add subscriptions to empty saved views", () => {
-    expect(articleEmptyState({ ...base, scope: "read-later" }).title).toBe("あとで読む記事はありません");
-    expect(articleEmptyState({ ...base, scope: "starred" }).title).toBe("お気に入りの記事はありません");
-    expect(articleEmptyState({ ...base, scope: "unread", sources: [source] }).title).toBe("未読の記事はありません");
+  it.each(["read-later", "starred"] as const)("keeps the %s empty state independent of subscription availability", (scope) => {
+    const empty = articleEmptyState({ ...base, scope });
+    expect(empty).toEqual(articleEmptyState({ ...base, scope, sources: [source] }));
+    expect(empty).not.toEqual(articleEmptyState(base));
   });
   it("includes child subscriptions but ignores unrelated and archived sources", () => {
     const folders = [{ id: "parent", parentId: null, name: "親", sortOrder: 0, unreadCount: 0 }, { id: "child", parentId: "parent", name: "子", sortOrder: 0, unreadCount: 0 }];
@@ -19,6 +19,15 @@ describe("article empty state", () => {
     expect(articleEmptyState({ ...context, sources: [source] }).title).toBe("記事の初回取得を待っています");
     expect(articleEmptyState({ ...context, sources: [{ ...source, folderId: "other" }] }).title).toBe("このフォルダに購読先はありません");
     expect(articleEmptyState({ ...context, sources: [{ ...source, status: "archived" }] }).title).toBe("このフォルダに購読先はありません");
+  });
+  it("finds deep descendants regardless of folder ordering and terminates on cycles", () => {
+    const folder = (id: string, parentId: string | null) => ({ id, parentId, name: id, sortOrder: 0, unreadCount: 0 });
+    const folders = [folder("leaf", "child"), folder("child", "parent"), folder("parent", "leaf")];
+    const context = { ...base, folderId: "parent", folders };
+    expect(articleEmptyState({ ...context, sources: [{ ...source, folderId: "leaf" }] }))
+      .toEqual(articleEmptyState({ ...base, sources: [source] }));
+    expect(articleEmptyState({ ...context, sources: [{ ...source, folderId: "outside" }] }))
+      .toEqual(articleEmptyState(context));
   });
   it("uses the selected source rather than unrelated successful sources", () => {
     expect(articleEmptyState({ ...base, sourceId: "s1", sources: [source, { ...source, id: "s2", lastCheckedAt: "2026-11-06T12:00:00Z" }] }).title).toBe("記事の初回取得を待っています");
