@@ -55,6 +55,12 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     articleCount: z.number().optional(),
   });
   const dataResponse = <T extends z.ZodType>(schema: T) => z.object({ data: schema });
+  const CollectionScheduleSchema = z.object({
+    mode: z.enum(["interval", "daily"]),
+    interval_hours: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(6), z.literal(12), z.literal(24)]),
+    daily_hour_jst: z.number().int().min(0).max(23),
+    timezone: z.literal("Asia/Tokyo"),
+  });
   const jsonResponse = (schema: z.ZodType, description: string) => ({
     description,
     content: { "application/json": { schema } },
@@ -111,6 +117,17 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     });
   };
   
+  for (const method of ["get", "put"] as const) {
+    addOperation({
+      method,
+      path: "/settings/collection-schedule",
+      summary: method === "get" ? "共通のRSS収集設定を取得" : "共通のRSS収集設定を保存",
+      description: "毎時Cronから実行します。保存や記事一覧の更新では即時取得しません。間隔の起点はUTC epochです。保存時に次の時間境界へ予定を再計算し、実行中ジョブと失敗後の待機期限を維持します。未設定時は1時間間隔です。next_fetch_atは有効な購読先の最も早い予定で、取得完了時刻ではありません。",
+      ...(method === "put" ? { request: { body: CollectionScheduleSchema } } : {}),
+      responses: { 200: jsonResponse(dataResponse(CollectionScheduleSchema.extend({ next_fetch_at: z.string().datetime().nullable() })), "保存済み設定と最も早い取得予定です。") },
+    });
+  }
+
   const idParams = z.object({
     id: z.string().openapi({
       param: { name: "id", in: "path" },
@@ -270,6 +287,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     method: "patch",
     path: "/sources/{id}",
     summary: "購読先更新",
+    description: "一時停止からの再開は共通の収集設定と失敗後の待機期限に従います。保存と収集設定の変更が競合した場合は409を返します。",
     request: {
       params: idParams,
       body: z.object({
@@ -280,6 +298,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     },
     responses: {
       200: jsonResponse(dataResponse(SourceSchema), "更新後の購読先です。"),
+      409: jsonResponse(ErrorResponseSchema, "収集設定または購読設定が変更されました。設定を再取得して再試行してください。"),
       404: jsonResponse(ErrorResponseSchema, "購読先が見つかりません。"),
     },
   });

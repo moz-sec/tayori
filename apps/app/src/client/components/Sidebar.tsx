@@ -32,6 +32,7 @@ interface SidebarProps {
   onCreateSource: (event: FormEvent<HTMLFormElement>) => void;
   onToggleSource: (source: Source) => void;
   onOpenSourceDialog: (source: Source) => void;
+  onOpenCollectionSettings?: () => void;
   onImportFile: (file: File | undefined) => void;
   onImportOpml: () => void;
 }
@@ -124,6 +125,7 @@ export function Sidebar(props: SidebarProps) {
         </section>
 
         <div className="mt-auto pt-8 text-xs leading-5 text-base-content/55" aria-live="polite">
+          {props.onOpenCollectionSettings && <button className="btn btn-ghost btn-sm mb-3 w-full justify-start text-base-content" onClick={props.onOpenCollectionSettings}><LuSettings aria-hidden="true" />RSS収集設定</button>}
           {status ? <>{`購読 ${status.activeSources}件 · 要確認 ${status.failingSources}件`}{status.lastTickAt && <><br />収集スケジューラー最終実行 {formatDate(status.lastTickAt)}</>}</> : "状態を取得中…"}
           <br />全体の実行時刻は各フィードの取得完了を示しません。
           <br />記事は{retentionDays}日間保存

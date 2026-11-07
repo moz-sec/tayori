@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueueMessage } from "@tayori/shared";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
+import { DEFAULT_COLLECTION_SCHEDULE, nextCollectionAt, type CollectionSchedule } from "@tayori/shared/collection-schedule";
 import worker from "./index";
 import { sqliteD1 } from "./test/sqlite-d1";
 
@@ -23,6 +24,15 @@ function source(id: string, status = "active", nextFetch = 0): void {
   database.sqlite.prepare(
     "INSERT INTO sources(id, title, normalized_url, status, next_fetch_at) VALUES (?, ?, ?, ?, ?)",
   ).run(id, id, `https://example.com/${id}.xml`, status, nextFetch);
+}
+
+/** Simulates the API's atomic setting save while retaining failure deadlines. */
+function saveSchedule(override: Partial<CollectionSchedule>): void {
+  const schedule = { ...DEFAULT_COLLECTION_SCHEDULE, ...override };
+  database.sqlite.prepare("INSERT INTO app_state(key,value) VALUES ('collection_schedule',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    .run(JSON.stringify(schedule));
+  database.sqlite.prepare("UPDATE sources SET next_fetch_at=MAX(?, COALESCE(retry_not_before,0))")
+    .run(nextCollectionAt(schedule, now / 1000));
 }
 
 /** Delivers a Queue message through the real Worker handler. */
@@ -69,6 +79,127 @@ afterEach(() => {
 });
 
 describe("hourly RSS collection", () => {
+  it("applies multi-hour intervals on stable boundaries, without polling every hourly tick", async () => {
+    source("six-hour");
+    saveSchedule({ interval_hours: 6 });
+    const fetcher = vi.fn(async () => new Response(feed(1)));
+    vi.stubGlobal("fetch", fetcher);
+    for (let hour = 1; hour < 6; hour++) {
+      now = Date.parse(`2026-10-18T0${hour}:12:00Z`);
+      await deliver({ schemaVersion: 1, type: "tick", scheduledAt: now - 12 * 60_000 });
+      await drain();
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    now = Date.parse("2026-10-18T06:12:00Z");
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: Date.parse("2026-10-18T06:00:00Z") });
+    await drain();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
+      .toBe(Date.parse("2026-10-18T12:00:00Z") / 1000);
+  });
+
+  it("runs daily at the Japan date boundary and skips missed occurrences without a backlog", async () => {
+    source("midnight");
+    saveSchedule({ mode: "daily", daily_hour_jst: 0 });
+    const fetcher = vi.fn(async () => new Response(null, { status: 304 }));
+    vi.stubGlobal("fetch", fetcher);
+    now = Date.parse("2026-10-18T14:00:08Z");
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: now - 8_000 });
+    await drain();
+    expect(fetcher).not.toHaveBeenCalled();
+    now = Date.parse("2026-10-18T15:00:08Z");
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: now - 8_000 });
+    await drain();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
+      .toBe(Date.parse("2026-10-19T15:00:00Z") / 1000);
+    now = Date.parse("2026-10-22T17:00:08Z");
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: Date.parse("2026-10-19T15:00:00Z") });
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: now - 8_000 });
+    await drain();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
+      .toBe(Date.parse("2026-10-23T15:00:00Z") / 1000);
+  });
+
+  it.each([200, 304])("preserves a setting changed during an HTTP %i fetch", async (status) => {
+    source("changed-during-fetch");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      saveSchedule({ mode: "daily", daily_hour_jst: 23 });
+      return new Response(status === 200 ? feed(1) : null, { status });
+    }));
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
+    await drain();
+    expect(database.sqlite.prepare("SELECT next_fetch_at, retry_not_before FROM sources").get())
+      .toEqual({ next_fetch_at: Date.parse("2026-10-18T14:00:00Z") / 1000, retry_not_before: null });
+    expect(database.sqlite.prepare("SELECT status FROM fetch_jobs").get()?.status).toBe("done");
+  });
+
+  it("applies a shorter interval saved while a daily job is running", async () => {
+    source("daily-to-hourly");
+    database.sqlite.prepare("INSERT INTO app_state(key,value) VALUES ('collection_schedule',?)")
+      .run(JSON.stringify({ ...DEFAULT_COLLECTION_SCHEDULE, mode: "daily", daily_hour_jst: 10 }));
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      saveSchedule({ interval_hours: 1 });
+      return new Response(feed(1));
+    }));
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
+    await drain();
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
+      .toBe((ROUND + HOUR) / 1000);
+  });
+
+  it("does not create a job from a schedule replaced after due selection", async () => {
+    source("tick-setting-race");
+    let changed = false;
+    database.state.beforeQuery = (sql) => {
+      if (!changed && sql.includes("INSERT INTO fetch_jobs")) {
+        changed = true;
+        saveSchedule({ interval_hours: 24 });
+      }
+    };
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
+    expect(changed).toBe(true);
+    expect(queued).toHaveLength(0);
+    expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM fetch_jobs").get()?.n).toBe(0);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
+      .toBe(Date.parse("2026-10-19T00:00:00Z") / 1000);
+  });
+
+  it("retains sent jobs after a schedule change and uses the newly saved schedule on completion", async () => {
+    source("queued-before-setting");
+    const fetcher = vi.fn(async () => new Response(feed(1)));
+    vi.stubGlobal("fetch", fetcher);
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
+    saveSchedule({ interval_hours: 12 });
+    await drain();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
+      .toBe(Date.parse("2026-10-18T12:00:00Z") / 1000);
+  });
+
+  it("retains Retry-After across setting changes and resumes only at an eligible hourly tick", async () => {
+    source("retry-schedule");
+    const fetcher = vi.fn(async () => new Response(null, { status: 429, headers: { "Retry-After": "7200" } }));
+    vi.stubGlobal("fetch", fetcher);
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
+    await drain();
+    const deadline = now / 1000 + 7200;
+    saveSchedule({ interval_hours: 1 });
+    expect(database.sqlite.prepare("SELECT next_fetch_at, retry_not_before FROM sources").get())
+      .toEqual({ next_fetch_at: deadline, retry_not_before: deadline });
+    now = ROUND + 2 * HOUR + 8_000;
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + 2 * HOUR });
+    await drain();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    now = ROUND + 3 * HOUR + 8_000;
+    vi.mocked(fetcher).mockImplementation(async () => new Response(null, { status: 304 }));
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + 3 * HOUR });
+    await drain();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(database.sqlite.prepare("SELECT retry_not_before FROM sources").get()?.retry_not_before).toBeNull();
+  });
+
   it("only enqueues a tick from scheduled, without doing database or HTTP work", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);

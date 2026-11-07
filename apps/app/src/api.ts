@@ -3,6 +3,8 @@ import { swaggerUI } from "@hono/swagger-ui";
 import { DEFAULT_RETENTION_DAYS, normalizeFeedUrl } from "@tayori/shared";
 import type { QueueMessage } from "@tayori/shared";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
+import { nextCollectionAt, loadCollectionSchedule } from "@tayori/shared/collection-schedule";
+import { collectionSettingsApi } from "./collection-settings-api";
 import { authenticate } from "./auth";
 import { registerApiOperations } from "./api-docs";
 
@@ -30,6 +32,7 @@ type SourceRow = {
   status: "active" | "paused" | "archived";
   interval_minutes: number;
   next_fetch_at: number;
+  retry_not_before: number | null;
   generation: number;
   last_checked_at: number | null;
   last_success_at: number | null;
@@ -104,6 +107,8 @@ api.onError((error, c) => {
 api.get("/health", (c) => c.json({ data: { status: "ok" } }));
 
 api.get("/me", (c) => c.json({ data: { email: c.get("principal"), retentionDays: DEFAULT_RETENTION_DAYS } }));
+
+api.route("/settings", collectionSettingsApi);
 
 api.get("/folders", async (c) => {
   const now = unixNow();
@@ -278,9 +283,32 @@ api.patch("/sources/:id", async (c) => {
   if (status === "archived") throw new ApiError(400, "USE_ARCHIVE_ENDPOINT");
   const title = body.title === undefined ? current.title : readName(body.title);
   const titleIsCustom = body.title === undefined ? current.title_is_custom : 1;
-  await c.env.DB.prepare(
-    "UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?, generation = generation + 1 WHERE id = ?",
-  ).bind(folderId, status, title, titleIsCustom, id).run();
+  if (current.status === "paused" && status === "active") {
+    const now = unixNow();
+    const { schedule, storedValue } = await loadCollectionSchedule(c.env.DB);
+    const nextFetchAt = Math.max(
+      nextCollectionAt(schedule, now),
+      current.retry_not_before ?? 0,
+    );
+    // Resuming waits for a future schedule boundary and never clears a feed's retry deadline.
+    const [updated] = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?,
+           next_fetch_at = ?, generation = generation + 1 WHERE id = ? AND generation = ?
+           AND COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?`,
+      ).bind(folderId, status, title, titleIsCustom, nextFetchAt, id, current.generation, storedValue),
+      c.env.DB.prepare(
+        `UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ?
+         WHERE source_id = ? AND generation <= ? AND status IN ('pending', 'sent', 'running')
+           AND changes() = 1`,
+      ).bind(now, id, current.generation),
+    ]);
+    if (!updated?.meta.changes) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
+  } else {
+    await c.env.DB.prepare(
+      "UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?, generation = generation + 1 WHERE id = ?",
+    ).bind(folderId, status, title, titleIsCustom, id).run();
+  }
   const updated = await c.env.DB.prepare("SELECT * FROM sources WHERE id = ?").bind(id).first<SourceRow>();
   return c.json({ data: sourceDto(updated!) });
 });
