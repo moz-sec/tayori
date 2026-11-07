@@ -1,11 +1,14 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { URL } from "node:url";
 
 /** Exercises production SQL against SQLite with D1 bind, query, and atomic-batch constraints. */
 export function sqliteD1() {
   const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("../../../../migrations/0001_initial.sql", import.meta.url), "utf8"));
+  const migrations = new URL("../../../../migrations/", import.meta.url);
+  for (const name of readdirSync(migrations).filter((name) => name.endsWith(".sql")).sort()) {
+    sqlite.exec(readFileSync(new URL(name, migrations), "utf8"));
+  }
   const state = {
     queries: 0,
     maximumQueries: 0,
