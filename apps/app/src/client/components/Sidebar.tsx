@@ -85,8 +85,10 @@ export function Sidebar(props: SidebarProps) {
 
   return <>
     <div className="drawer-side z-30">
-      <aside className="tayori-sidebar flex min-h-full w-80 flex-col border-r border-base-300/40 bg-base-100 px-4 pb-6 pt-5">
-        <div className="h-8 shrink-0" aria-hidden="true" />
+      <aside className="tayori-sidebar flex min-h-full w-80 flex-col border-r border-base-300 bg-base-100 px-4 pb-6 pt-5">
+        <div className="mb-6 flex shrink-0 items-center px-2 pt-10">
+          <span className="text-xl font-semibold tracking-tight" translate="no">Tayori</span>
+        </div>
         <nav aria-label="記事の絞り込み" className="menu menu-sm gap-1 p-0">
           {(["all", "unread", "read-later", "starred"] as Scope[]).map((item) => <li key={item}>
             <button aria-current={scope === item && !folderId && !sourceId ? "page" : undefined} className={scope === item && !folderId && !sourceId ? "active" : ""} onClick={() => onScopeChange(item)}>
@@ -97,8 +99,8 @@ export function Sidebar(props: SidebarProps) {
 
         <section className="mt-7">
           <div className="mb-2 flex items-center justify-between px-2">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-base-content/55">Feeds</h2>
-            <button className="btn btn-ghost btn-xs" aria-label="New folder" title="New folder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: null })}><LuPlus aria-hidden="true" /></button>
+            <h2 className="text-xs font-semibold text-base-content/55">購読先</h2>
+            <button className="btn btn-ghost btn-xs" aria-label="フォルダを作成" title="フォルダを作成" onClick={() => onOpenFolderDialog({ mode: "create", parentId: null })}><LuPlus aria-hidden="true" /></button>
           </div>
           <ul className="menu menu-sm max-h-52 w-full flex-nowrap overflow-y-auto p-0">
             {visibleFolders.map((folder) => <li key={folder.id} className="w-full">
@@ -112,8 +114,8 @@ export function Sidebar(props: SidebarProps) {
               {actionFolderId === folder.id && <div id={`folder-actions-${folder.id}`} className="tayori-folder-actions" role="group" aria-label={`${folder.name}の操作`}>
                 <button className="btn btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を上へ移動`} title="同じ親の中で上へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId)[0]?.id === folder.id} onClick={() => void moveFolder(folder.id, "up")}><LuArrowUp aria-hidden="true" /><span>上へ移動</span></button>
                 <button className="btn btn-ghost btn-xs shrink-0" aria-label={`${folder.name}を下へ移動`} title="同じ親の中で下へ" disabled={folderBusy || !!movingFolder || folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id === folder.id} onClick={() => void moveFolder(folder.id, "down")}><LuArrowDown aria-hidden="true" /><span>下へ移動</span></button>
-                <button className="btn btn-ghost btn-xs shrink-0" aria-label={`Add subfolder to ${folder.name}`} title="Add subfolder" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus aria-hidden="true" /><span>子フォルダを追加</span></button>
-                <button className="btn btn-ghost btn-xs shrink-0" aria-label={`Settings for ${folder.name}`} title="Folder settings" onClick={() => onOpenFolderDialog({ mode: "edit", folder })}><LuSettings aria-hidden="true" /><span>フォルダ設定</span></button>
+                <button className="btn btn-ghost btn-xs shrink-0" aria-label={`「${folder.name}」に子フォルダを作成`} title="子フォルダを作成" onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}><LuPlus aria-hidden="true" /><span>子フォルダを追加</span></button>
+                <button className="btn btn-ghost btn-xs shrink-0" aria-label={`「${folder.name}」のフォルダ設定`} title="フォルダ設定" onClick={() => onOpenFolderDialog({ mode: "edit", folder })}><LuSettings aria-hidden="true" /><span>フォルダ設定</span></button>
               </div>}
               {!collapsedFolders.has(folder.id) && sources.filter((source) => source.folderId === folder.id && source.status !== "archived").map((source) => <SourceItem key={source.id} source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} onSettings={onOpenSourceDialog} />)}
             </li>)}
@@ -122,7 +124,7 @@ export function Sidebar(props: SidebarProps) {
         </section>
 
         <section className="mt-7">
-          <div className="mb-2 flex items-center justify-between px-2"><h2 className="text-xs font-bold uppercase tracking-wider text-base-content/55">未分類</h2><a className="link link-hover text-xs" href="/api/v1/subscriptions.opml">OPML出力</a></div>
+          <div className="mb-2 flex items-center justify-between px-2"><h2 className="text-xs font-semibold text-base-content/55">未分類</h2><a className="link link-hover text-xs" href="/api/v1/subscriptions.opml">OPML出力</a></div>
           <div className="menu menu-sm max-h-56 flex-nowrap overflow-y-auto p-0">
             {sources.filter((source) => source.status !== "archived" && !source.folderId).map((source) => <li key={source.id}><SourceItem source={source} selected={sourceId === source.id} onSelect={onSelectSource} onToggle={onToggleSource} onSettings={onOpenSourceDialog} /></li>)}
           </div>

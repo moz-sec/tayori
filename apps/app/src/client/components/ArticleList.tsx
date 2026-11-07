@@ -32,22 +32,22 @@ export function ArticleList({ articles, nextCursor, loading = null, busy = false
       <div><p>{articles.length ? "記事一覧を更新できませんでした。表示中の記事は前回取得した内容です。" : "記事一覧を読み込めませんでした。"}</p><p>{error}</p></div>
       <button type="button" className="btn btn-sm" disabled={busy} onClick={onRetry}>再試行</button>
     </div>}
-    {!initialLoading && !error && articles.length === 0 && <div className="card border border-base-300 bg-base-100 shadow-sm">
+    {!initialLoading && !error && articles.length === 0 && <div className="card border border-base-300 bg-base-100">
       <div className="card-body items-center py-16 text-center">
         <LuMail className="text-4xl text-primary/60" aria-hidden="true" />
         <h2 className="card-title mt-2">{emptyState.title}</h2>
         <p className="max-w-sm text-base-content/65">{emptyState.description}</p>
       </div>
     </div>}
-    {!initialLoading && <div className="space-y-4">{articles.map((article) => <ArticleCard key={article.id} article={article} updatesDisabled={updatesDisabled} selected={selectedIds.has(article.id)} selectionDisabled={selectionDisabled} onToggleSelection={onToggleSelection} onUpdate={onUpdate} />)}</div>}
+    {!initialLoading && articles.length > 0 && <div className="divide-y divide-base-300 overflow-hidden rounded-box border border-base-300 bg-base-100">{articles.map((article) => <ArticleCard key={article.id} article={article} updatesDisabled={updatesDisabled} selected={selectedIds.has(article.id)} selectionDisabled={selectionDisabled} onToggleSelection={onToggleSelection} onUpdate={onUpdate} />)}</div>}
     {!initialLoading && nextCursor && <div className="mt-7 text-center"><button className="btn btn-outline" disabled={loadMoreDisabled} onClick={onLoadMore}>{loading === "append" ? "読み込んでいます…" : "さらに読み込む"}</button></div>}
   </section>;
 }
 
 /** Renders an article summary and its read, save, and favorite actions. */
 function ArticleCard({ article, updatesDisabled, selected, selectionDisabled, onToggleSelection, onUpdate }: { article: Article; updatesDisabled: boolean; selected: boolean; selectionDisabled: boolean; onToggleSelection: ArticleListProps["onToggleSelection"]; onUpdate: ArticleListProps["onUpdate"] }) {
-  return <article className="card min-w-0 wrap-anywhere border border-base-300 bg-base-100 shadow-sm transition-shadow hover:shadow-md">
-    <div className="card-body min-w-0 gap-3 p-5 sm:p-6">
+  return <article className="card min-w-0 wrap-anywhere rounded-none bg-base-100">
+    <div className="card-body min-w-0 gap-3 p-4 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/75">
         <label className="flex cursor-pointer items-center gap-2 text-base-content">
           <input type="checkbox" className="checkbox checkbox-sm" checked={selected} disabled={selectionDisabled} onChange={() => onToggleSelection(article.id)} aria-label={`「${article.title}」を選択`} />
