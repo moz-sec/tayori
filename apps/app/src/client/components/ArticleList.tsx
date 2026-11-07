@@ -66,12 +66,13 @@ function ArticleCard({ article, updatesDisabled, selected, selectionDisabled, on
         <button className="btn btn-sm btn-ghost" disabled={updatesDisabled} onClick={() => onUpdate(article, { read: !article.read }, article.read ? "未読に戻しました" : "既読にしました")}>
           {article.read ? "未読に戻す" : "既読にする"}
         </button>
-        <button className={`btn btn-sm btn-ghost ${article.readLater ? "text-primary" : ""}`} disabled={updatesDisabled} onClick={() => onUpdate(article, { readLater: !article.readLater }, article.readLater ? "保存を解除しました" : "あとで読むに保存しました")}>
-          {article.readLater ? "✓ あとで読む" : "あとで読む"}
+        <button className={`btn btn-sm btn-ghost ${article.readLater ? "text-primary" : ""}`} disabled={updatesDisabled} aria-pressed={article.readLater} onClick={() => onUpdate(article, { readLater: !article.readLater }, article.readLater ? "保存を解除しました" : "あとで読むに保存しました")}>
+          {article.readLater && <span aria-hidden="true">✓ </span>}あとで読む
         </button>
-        <button className={`btn btn-sm btn-ghost ${article.starred ? "text-warning" : ""}`} disabled={updatesDisabled} onClick={() => onUpdate(article, { starred: !article.starred }, article.starred ? "お気に入りを解除しました" : "お気に入りに追加しました")}>
-          <LuStar className="mr-1" fill={article.starred ? "currentColor" : "none"} />お気に入り
+        <button className={`btn btn-sm btn-ghost ${article.starred ? "text-warning" : ""}`} disabled={updatesDisabled} aria-pressed={article.starred} onClick={() => onUpdate(article, { starred: !article.starred }, article.starred ? "お気に入りを解除しました" : "お気に入りに追加しました")}>
+          <LuStar aria-hidden="true" className="mr-1" fill={article.starred ? "currentColor" : "none"} />お気に入り
         </button>
+        {article.starred && <span className="text-xs text-base-content/75">お気に入り登録済み</span>}
         <span className="ml-auto text-xs text-base-content/50">保存期限 {formatDate(article.expiresAt)}</span>
       </div>
     </div>
