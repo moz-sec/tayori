@@ -72,6 +72,12 @@ export function evaluateD1Usage(
 
 export const D1_USAGE_SNAPSHOT_KEY = "d1_usage_snapshot";
 
+export class D1UsageError extends Error {
+  constructor(readonly code: "http_error" | "invalid_response") {
+    super(code);
+  }
+}
+
 export interface D1UsageCredentials {
   accountId: string;
   databaseId: string;
@@ -104,9 +110,9 @@ export async function fetchD1Usage(
       variables: { account: credentials.accountId, day: dayUtc },
     }),
   });
-  if (!response.ok) throw new Error(`D1 analytics request failed (${response.status})`);
+  if (!response.ok) throw new D1UsageError("http_error");
   const body: unknown = await response.json();
-  if (!body || typeof body !== "object") throw new Error("Invalid D1 analytics response");
+  if (!body || typeof body !== "object") throw new D1UsageError("invalid_response");
   const result = body as {
     errors?: unknown;
     data?: {
@@ -121,7 +127,7 @@ export async function fetchD1Usage(
   };
   const accounts = result.data?.viewer?.accounts;
   if (result.errors || !Array.isArray(accounts) || accounts.length !== 1)
-    throw new Error("D1 analytics unavailable");
+    throw new D1UsageError("invalid_response");
   const rows = accounts[0].d1AnalyticsAdaptiveGroups;
   const sizeResponse = await fetcher(
     `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(credentials.accountId)}/d1/database/${encodeURIComponent(credentials.databaseId)}`,
@@ -131,7 +137,7 @@ export async function fetchD1Usage(
       redirect: "error",
     },
   );
-  if (!sizeResponse.ok) throw new Error(`D1 database info request failed (${sizeResponse.status})`);
+  if (!sizeResponse.ok) throw new D1UsageError("http_error");
   const sizeBody = (await sizeResponse.json()) as {
     success?: boolean;
     result?: { file_size?: unknown };
@@ -147,7 +153,7 @@ export async function fetchD1Usage(
     sizeBody.success !== true ||
     !finiteNonnegative(storageBytes)
   )
-    throw new Error("Incomplete D1 analytics response");
+    throw new D1UsageError("invalid_response");
   return {
     observedAt: now.toISOString(),
     dayUtc,

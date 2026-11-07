@@ -59,3 +59,17 @@ it("fails closed when enabled settings or credentials are invalid", async () => 
   await refreshUsageControl({ DB: db.binding, ...options, D1_ROWS_READ_LIMIT: "bad" }, seconds);
   expect((await loadUsageControl(db.binding, seconds)).state).toBe("stopped");
 });
+
+it("logs only a fixed error category when the request fails", async () => {
+  const db = sqliteD1();
+  const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(null, { status: 403 })),
+  );
+  await refreshUsageControl({ DB: db.binding, ...options }, seconds);
+  expect(logger).toHaveBeenCalledWith(
+    JSON.stringify({ event: "D1_USAGE_REFRESH_FAILED", code: "http_error" }),
+  );
+  logger.mockRestore();
+});

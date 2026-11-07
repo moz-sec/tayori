@@ -1,4 +1,5 @@
 import {
+  D1UsageError,
   fetchD1Usage,
   readD1UsageStatus,
   writeD1UsageConfig,
@@ -53,8 +54,16 @@ export async function refreshUsageControl(env: UsageControlEnv, nowSec: number):
       new Date(nowSec * 1000),
     );
     await writeD1UsageSnapshot(env.DB, snapshot);
-  } catch {
-    console.error("D1_USAGE_REFRESH_FAILED");
+  } catch (error) {
+    const code =
+      error instanceof D1UsageError
+        ? error.code
+        : error instanceof SyntaxError
+          ? "invalid_response"
+          : error instanceof Error && error.name === "TimeoutError"
+            ? "timeout"
+            : "request_failed";
+    console.error(JSON.stringify({ event: "D1_USAGE_REFRESH_FAILED", code }));
   }
 }
 

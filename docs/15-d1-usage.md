@@ -4,10 +4,23 @@
 対象データベースの容量はD1 REST APIの `file_size` から取得する。監視結果と設定はD1の `app_state` に保存する。
 取得値にはCloudflare側の集計遅延があり、上限への到達を事前に完全には防げない。
 
-ビルド時に `TAYORI_D1_USAGE_ENABLED=true` を指定し、Collectorに `D1_USAGE_ENABLED=true`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_STORAGE_LIMIT_BYTES`、`D1_ROWS_READ_LIMIT`、
-`D1_ROWS_WRITTEN_LIMIT`、`D1_WARNING_RATIO`、`D1_MAX_AGE_SECONDS` を設定する。
-`D1_ANALYTICS_TOKEN` はGraphQL Analyticsの読み取りと対象D1情報の読み取りに必要な権限を持つシークレットとしてCollectorに設定する。
-数値の上限と最大経過秒数は正数、警告割合は0より大きく1より小さい数とする。未設定では監視は無効となる。
+ビルド時に `TAYORI_D1_USAGE_ENABLED=true` と `CLOUDFLARE_ACCOUNT_ID` を指定する。
+本番では `TAYORI_D1_DATABASE_ID`、プレビューでは `TAYORI_PREVIEW_D1_DATABASE_ID` を指定する。
+アカウントIDと対象DBのIDは、それぞれCollectorの `D1_ACCOUNT_ID` と `D1_DATABASE_ID` に渡される。
+有効化時にこれらのIDが未指定または空白のみの場合、ビルドはエラーになる。
+`D1_ANALYTICS_TOKEN` はGraphQL Analyticsと対象D1情報の読み取りに必要な権限を持つシークレットとしてCollectorに設定する。
+
+以下の値は同名のビルド時環境変数で指定し、省略時は表の値を使う。数値の上限と最大経過秒数は正数、警告割合は0より大きく1より小さい数とする。
+
+| 変数                     |    既定値 |
+| ------------------------ | --------: |
+| `D1_STORAGE_LIMIT_BYTES` | 419430400 |
+| `D1_ROWS_READ_LIMIT`     |   3000000 |
+| `D1_ROWS_WRITTEN_LIMIT`  |     60000 |
+| `D1_WARNING_RATIO`       |     0.875 |
+| `D1_MAX_AGE_SECONDS`     |      7200 |
+
+監視は初期状態では無効となる。有効時に実行環境の設定や認証情報が不足または不正な場合、新しい取り込みを停止する。
 
 無料枠はアカウント内の他のデータベースとも共有される。行数はアカウント全体を監視するが、容量は対象データベースのみを監視するため、他のデータベースが使う容量と集計遅延、監視自体の操作に十分な余裕を残して上限を決める。監視1回につき外部APIを2回呼び出し、設定と観測値の保存などにD1の読み書きを使う。通常の定期実行ごとに取得するため、実際の消費量は実行頻度に依存する。
 
