@@ -36,13 +36,17 @@ tick / fetch"]
 | Queues: tayori-jobs     | tick / fetchメッセージ。本文を入れない                         |
 | Cloudflare Access       | 本人のメールアドレスだけを許可                                 |
 
-Web UI と API は同じオリジンで提供する。初期実装では Workers Static Assets を使い、Pages には配置しない。API はすべてのリクエストで Access JWT を検証する。workers.dev 上の静的アセット自体は Access で保護されない可能性があるため、公開前に Access で保護したカスタムホスト名を用意する。初期実装では GCP、VM、R2、KV、Durable Objects、AI を使わない。
+Web UI と API は同じオリジンで提供する。初期実装では Workers Static Assets を使い、Pages には配置しない。API はすべてのリクエストで Access JWT を検証する。workers.dev
+上の静的アセット自体は Access で保護されない可能性があるため、公開前に Access で保護したカスタムホスト名を用意する。初期実装では GCP、VM、R2、KV、Durable Objects、AI を使わない。
 
 ## 2. Cronの役割を限定
 
 FreeのHTTP・Cron CPUは10ms。XML解析やOPML一括処理をここへ集めない。Cronは5分ごとに小さいtickメッセージを送る。収集対象のD1検索、ジョブ作成、期限整理はQueue consumerで行う。
 
-Queues公式制限ページは保持期間を除きFree/Paid共通とし、consumerの標準CPU上限30秒を記載している。一方Workers一般ページにはPaid向けCPU設定の説明もあるため、**Freeアカウント上のconsumer実行と設定の受理を最初に実証する**。検証前にCPU上限を拡張する設定は入れない。[Workers制限](https://developers.cloudflare.com/workers/platform/limits/) / [Queues制限](https://developers.cloudflare.com/queues/platform/limits/)
+Queues公式制限ページは保持期間を除きFree/Paid共通とし、consumerの標準CPU上限30秒を記載している。一方Workers一般ページにはPaid向けCPU設定の説明もあるため、
+**Freeアカウント上のconsumer実行と設定の受理を最初に実証する**。検証前にCPU上限を拡張する設定は入れない。
+[Workers制限](https://developers.cloudflare.com/workers/platform/limits/) /
+[Queues制限](https://developers.cloudflare.com/queues/platform/limits/)
 
 ## 3. Queue設計
 
@@ -65,11 +69,13 @@ D1 への書き込みと Queue への送信を1つのトランザクションに
 5. 記事書込と最終状態変更は有効なgenerationを条件に実施し、古いconsumerの更新を拒否。
 6. 保存成功後にack。保存後ack前の停止でも、再配信は完了記録により無害になる。
 
-D1 batchの原子性だけでは競合防止にならない。各更新の条件、変更件数、予約失敗時のロールバックを結合テストする。[D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/)
+D1 batchの原子性だけでは競合防止にならない。各更新の条件、変更件数、予約失敗時のロールバックを結合テストする。
+[D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/)
 
 ## 5. RSS取得
 
-HTTP(S)の公開URLのみ。URLとリダイレクト先を検証し、認証付きURL・既知の内部IP・localhostを拒否する。DNS再束縛を含む制約は残るため、取得対象の検証は継続課題とする。公開のURL取得プロキシとしてAPIを提供しない。
+HTTP(S)の公開URLのみ。URLとリダイレクト先を検証し、認証付きURL・既知の内部IP・localhostを拒否する。DNS再束縛を含む制約は残るため、取得対象の検証は継続課題とする。
+公開のURL取得プロキシとしてAPIを提供しない。
 
 - ETag / Last-Modifiedを購読先ごとに保存し、条件付きGET。
 - 304では記事解析なし。200ではRSS/Atomを解析し、安定キーで重複排除。
@@ -81,8 +87,10 @@ HTTP(S)の公開URLのみ。URLとリダイレクト先を検証し、認証付�
 
 ## 6. 認証と公開経路
 
-AccessでUIとAPI全体を保護。メールPINを初期候補とし、許可メールアドレスは未設定。Worker側でも署名・issuer・audience・期限・本人の識別を確認し、未設定/無効時はfail closedとする。検証済みのプラットフォームidentity機能を使う場合も同じ受け入れ条件を満たす。
+AccessでUIとAPI全体を保護。メールPINを初期候補とし、許可メールアドレスは未設定。Worker側でも署名・issuer・audience・期限・本人の識別を確認し、未設定/無効時はfail closedとする。
+検証済みのプラットフォームidentity機能を使う場合も同じ受け入れ条件を満たす。
 
-Web Workerはworker-firstで認証確認後にassets/APIへ分岐する案。この構成では静的ファイルもWorker呼出し分を見積もる。collectorのHTTP公開は無効化し、public route・workers.dev・preview経由の収集起動を作らない。
+Web Workerはworker-firstで認証確認後にassets/APIへ分岐する案。この構成では静的ファイルもWorker呼出し分を見積もる。collectorのHTTP公開は無効化し、public
+route・workers.dev・preview経由の収集起動を作らない。
 
 Cookie認証の更新APIは同一Origin確認、JSON Content-Type、CSRF対策を実施。APIレスポンスはprivate/no-store。秘密鍵・APIトークンをブラウザへ渡さない。

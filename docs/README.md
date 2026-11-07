@@ -21,7 +21,8 @@ Tayori は、購読先から届く情報をフォルダに整理して読む個�
 | [CI/CD設計](./11-ci-cd.md)                     | GitHub Actionsのテスト、Semgrep、依存関係の監視 |
 | [UIデザイン指針](./12-ui-design-guidelines.md) | 色、文字、余白、部品、状態表示、日本語表記      |
 
-図は各 Markdown 文書内に Mermaid で記載しています。編集用の原本は[diagrams](diagrams/README.md)にあります。基本的な API、UI、Queue による収集処理は実装済みですが、実環境での運用、負荷、セキュリティの検証はこれからです。
+図は各 Markdown 文書内に Mermaid で記載しています。編集用の原本は[diagrams](diagrams/README.md)にあります。基本的な API、UI、Queue による収集処理は実装済みですが、実環境での運用、
+負荷、セキュリティの検証はこれからです。
 
 ## 前提の区別
 

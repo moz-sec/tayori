@@ -1,10 +1,12 @@
 # 開発・検証計画
 
-本書では、初期実装と今後の検証手順を記録する。UI/API、RSS 収集、Access JWT の検証、OPML、D1 schema は実装済み。本番 Cloudflare リソースの作成、実際の購読先を使った試験、バックアップからの復元はまだ行っていない。
+本書では、初期実装と今後の検証手順を記録する。UI/API、RSS 収集、Access JWT の検証、OPML、D1 schema は実装済み。本番 Cloudflare リソースの作成、実際の購読先を使った試験、
+バックアップからの復元はまだ行っていない。
 
 ## 1. 推奨技術
 
-TypeScript、React、Vite、Tailwind CSS、daisyUI、Hono、Workers、D1（SQLマイグレーション）、Queues、Access。RSS/Atom解析はfast-xml-parserを利用する。GoやVMは使わない。
+TypeScript、React、Vite、Tailwind CSS、daisyUI、Hono、Workers、D1（SQLマイグレーション）、Queues、Access。RSS/Atom解析はfast-xml-parserを利用する。
+GoやVMは使わない。
 
 ```text
 tayori/
@@ -28,7 +30,9 @@ tayori/
 - ローカル認証代替は専用設定に限定。本番ビルド/設定検証で代替認証が有効ならデプロイを失敗させる。
 - SQL migration、Worker設定、lockfileをGit管理。Terraformは初期必須にしない。
 
-各 Worker の `cloudflare.config.ts` を Cloudflare 設定の唯一の実行元とする。npm workspaces では `cf build` が Vite plugin を見つけられないため、開発とビルドには Vite を使い、成果物は `cf deploy --prebuilt` でデプロイする。D1 マイグレーションや Queue などのリソース管理にも `cf` コマンドを使う。`cf` はベータ版のため、CLI や設定形式を更新するときは公式情報を確認する。現時点で `cf` が対応していないログの tail や単独の secret 更新が必要な場合に限り、Wrangler を補助的に使う。
+各 Worker の `cloudflare.config.ts` を Cloudflare 設定の唯一の実行元とする。npm workspaces では `cf build` が Vite plugin を見つけられないため、
+開発とビルドには Vite を使い、成果物は `cf deploy --prebuilt` でデプロイする。D1 マイグレーションや Queue などのリソース管理にも `cf` コマンドを使う。`cf` はベータ版のため、CLI
+や設定形式を更新するときは公式情報を確認する。現時点で `cf` が対応していないログの tail や単独の secret 更新が必要な場合に限り、Wrangler を補助的に使う。
 
 ## 3. 実装順序
 

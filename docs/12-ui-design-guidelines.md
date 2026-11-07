@@ -1,8 +1,10 @@
 # Tayori デザインシステム
 
-Issue [#39](https://github.com/moz-sec/tayori/issues/39) の方針を実装・レビューに使うための指針をまとめる。日本語で日々の記事を読む個人向けRSSリーダーとして、「便りが届き、フォルダで静かに整理できる」体験を優先する。
+Issue [#39](https://github.com/moz-sec/tayori/issues/39) の方針を実装・レビューに使うための指針をまとめる。日本語で日々の記事を読む個人向けRSSリーダーとして、「便りが届き、
+フォルダで静かに整理できる」体験を優先する。
 
-ui-ux-pro-max の `minimal content reader` 検索で得られた Minimalism & Swiss Style の可読性・単純な構造を参考にした。検索結果のモノクロ色、ゼロ角丸、LP構成は採用しない。既存のdaisyUIテーマ、アイコン、フォントのフォールバックを尊重し、frontend-design の指針に沿って情報の階層を明確にし、装飾を絞る。
+ui-ux-pro-max の `minimal content reader` 検索で得られた Minimalism & Swiss Style の可読性・単純な構造を参考にした。検索結果のモノクロ色、ゼロ角丸、LP構成は採用しない。
+既存のdaisyUIテーマ、アイコン、フォントのフォールバックを尊重し、frontend-design の指針に沿って情報の階層を明確にし、装飾を絞る。
 
 ## 色の基準
 
@@ -17,13 +19,15 @@ ui-ux-pro-max の `minimal content reader` 検索で得られた Minimalism & Sw
 | 主操作・フォーカス・選択の強調           | `--color-primary`      | `#422ad5` |
 | エラーの面                               | `--color-error`        | `#ff637d` |
 
-塗りつぶした主操作には `primary-content`、エラー面には `error-content` を組み合わせる。`warning` などの状態色を小さい文字へそのまま流用しない。通常文字は背景とのコントラスト4.5:1以上を基準にする。
+塗りつぶした主操作には `primary-content`、エラー面には `error-content` を組み合わせる。`warning` などの状態色を小さい文字へそのまま流用しない。
+通常文字は背景とのコントラスト4.5:1以上を基準にする。
 
 未使用の `.tayori-mark` と独自の緑色は廃止する。採用済みの `/favicon.ico` はブラウザータブ用として維持する。画面内のブランドは「Tayori」の文字で示し、新しいロゴやパレットを追加しない。
 
 ## 文字と余白
 
-- フォントは既存の `Inter, "Noto Sans JP", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`。端末にない場合はシステムフォントへフォールバックし、Webフォントの外部取得を必須にしない。
+- フォントは既存の `Inter, "Noto Sans JP", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`。
+  端末にない場合はシステムフォントへフォールバックし、Webフォントの外部取得を必須にしない。
 - 本文の基準は16px・行間1.5。記事タイトルは20px程度で本文より強く、画面見出しは30px程度。要約は14〜16px、補助情報は12〜14pxを目安にする。
 - タイトルは内容、配信元・日時は出典、未読表示は読む順番を伝える。管理用の操作は記事の見出しと同じ強さにしない。
 - 欧文本文は1行80文字以内を目安に、日本語も読書に適した行長とする。
@@ -55,11 +59,13 @@ PC（1024px以上）                モバイル
 └──────────┴────────────────┘  └────────────────────┘
 ```
 
-ブランドの上には開閉操作の領域を残し、固定ボタンと重ねない。サイドバーには影を付けず、境界線で記事領域との関係を示す。記事群は1つの白い面と区切り線でまとめ、各記事へ影やカード全体のhover効果を付けない。タイトルのリンクや操作ボタンが操作対象であることを示す。
+ブランドの上には開閉操作の領域を残し、固定ボタンと重ねない。サイドバーには影を付けず、境界線で記事領域との関係を示す。記事群は1つの白い面と区切り線でまとめ、各記事へ影やカード全体のhover効果を付けない。
+タイトルのリンクや操作ボタンが操作対象であることを示す。
 
 ## 部品とインタラクション
 
-- `btn`、`input`、`select`、`checkbox`、`modal-box` 等のdaisyUI部品を使う。角丸の基準は `--radius-field` / `--radius-box`、境界線は `--border`。同じ用途に別の角丸・色を直書きしない。
+- `btn`、`input`、`select`、`checkbox`、`modal-box` 等のdaisyUI部品を使う。角丸の基準は `--radius-field` / `--radius-box`、境界線は `--border`。
+  同じ用途に別の角丸・色を直書きしない。
 - 記事は個々の装飾カードではなく、読み進める行の集合として扱う。管理フォームの淡い面は「入力する場所」、ダイアログの面は「今の作業」を区別するために使う。
 - 操作はhoverだけに依存させない。キーボードでは `:focus-visible` のprimary色・2pxの輪郭と3pxのオフセットで現在位置を示す。フォーカスを不要な装飾として消さない。
 - 操作対象ではないカードに浮き上がるアニメーションを付けない。`prefers-reduced-motion: reduce` ではドロワー・ダイアログ・操作部品の移動や遷移を抑える。
@@ -83,6 +89,9 @@ PC（1024px以上）                モバイル
 
 ## 検証
 
-変更の確認は375 / 768 / 1024 / 1440pxで行う。未読・既読・保存、フォーム入力・エラー、モーダル開閉をスクリーンショットで比較し、Tab / Shift+Tab / Enter / Esc、フォーカスの見え方、reduced-motionも確認する。APIを仮応答へ差し替えた検証と実APIを使う検証は区別して記録する。
+変更の確認は375 / 768 / 1024 / 1440pxで行う。未読・既読・保存、フォーム入力・エラー、モーダル開閉をスクリーンショットで比較し、Tab / Shift+Tab / Enter / Esc、フォーカスの見え方、
+reduced-motionも確認する。APIを仮応答へ差し替えた検証と実APIを使う検証は区別して記録する。
 
-E2Eテストを組み合わせる際は、変更前の `New folder` / `Folder settings` / `Folder name` / `Create` / `Save` / `Settings for …` / `追加` のロケーターを上記の日本語へ更新する。購読登録フォームの名前とボタン名はどちらも「購読先を追加」のため、ボタンは `getByRole("button", { name: "購読先を追加", exact: true })` のように役割で区別する。
+E2Eテストを組み合わせる際は、変更前の `New folder` / `Folder settings` / `Folder name` / `Create` / `Save` / `Settings for …` / `追加`
+のロケーターを上記の日本語へ更新する。購読登録フォームの名前とボタン名はどちらも「購読先を追加」のため、ボタンは `getByRole("button", { name: "購読先を追加", exact: true })`
+のように役割で区別する。
