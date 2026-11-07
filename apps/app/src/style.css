@@ -50,3 +50,15 @@ button, input, select { font: inherit; }
 }
 /* Feed names can contain long words or URLs without spaces. */
 main h1 { overflow-wrap: anywhere; }
+
+/* The drawer controls sit outside the sidebar and main content containers. */
+@media (any-pointer: coarse) {
+  .tayori-main-content > button[aria-controls="tayori-sidebar"],
+  #tayori-sidebar-close {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    touch-action: manipulation;
+  }
+  .tayori-main-content > main { padding-top: 4.75rem; }
+  #tayori-sidebar > .drawer-side > aside { padding-top: 4.75rem; }
+}
