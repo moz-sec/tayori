@@ -28,13 +28,13 @@ tick / fetch"]
     O --> B["手元のバックアップ"]
 ```
 
-| リソース | 責務 |
-|---|---|
-| tayori-app Worker | API、Access JWT確認、Static Assets経由のReact UI配信 |
-| tayori-collector Worker | scheduledはtick送信のみ。queueで配信対象選定・取得・整理 |
-| D1: tayori-db | 購読・記事・既読・保存・収集ジョブ・予算を集約するデータベース |
-| Queues: tayori-jobs | tick / fetchメッセージ。本文を入れない |
-| Cloudflare Access | 本人のメールアドレスだけを許可 |
+| リソース                | 責務                                                           |
+| ----------------------- | -------------------------------------------------------------- |
+| tayori-app Worker       | API、Access JWT確認、Static Assets経由のReact UI配信           |
+| tayori-collector Worker | scheduledはtick送信のみ。queueで配信対象選定・取得・整理       |
+| D1: tayori-db           | 購読・記事・既読・保存・収集ジョブ・予算を集約するデータベース |
+| Queues: tayori-jobs     | tick / fetchメッセージ。本文を入れない                         |
+| Cloudflare Access       | 本人のメールアドレスだけを許可                                 |
 
 Web UI と API は同じオリジンで提供する。初期実装では Workers Static Assets を使い、Pages には配置しない。API はすべてのリクエストで Access JWT を検証する。workers.dev 上の静的アセット自体は Access で保護されない可能性があるため、公開前に Access で保護したカスタムホスト名を用意する。初期実装では GCP、VM、R2、KV、Durable Objects、AI を使わない。
 

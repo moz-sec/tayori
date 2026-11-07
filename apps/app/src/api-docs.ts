@@ -59,7 +59,14 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
   const dataResponse = <T extends z.ZodType>(schema: T) => z.object({ data: schema });
   const CollectionScheduleSchema = z.object({
     mode: z.enum(["interval", "daily"]),
-    interval_hours: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(6), z.literal(12), z.literal(24)]),
+    interval_hours: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(6),
+      z.literal(12),
+      z.literal(24),
+    ]),
     daily_hour_jst: z.number().int().min(0).max(23),
     timezone: z.literal("Asia/Tokyo"),
   });
@@ -76,16 +83,17 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     503: jsonResponse(ErrorResponseSchema, "Cloudflare Access が設定されていません。"),
     500: jsonResponse(ErrorResponseSchema, "内部エラーです。"),
   };
-  
+
   // The existing handlers keep their custom validation and error behavior. These registry entries
   // describe that API without introducing a second validation pass or changing request semantics.
   registry.registerComponent("securitySchemes", "CloudflareAccess", {
     type: "apiKey",
     in: "header",
     name: "Cf-Access-Jwt-Assertion",
-    description: "Cloudflare Access が付与するJWT。ブラウザーからの利用では通常自動で付与されます。",
+    description:
+      "Cloudflare Access が付与するJWT。ブラウザーからの利用では通常自動で付与されます。",
   });
-  
+
   const addOperation = (operation: {
     method: "get" | "post" | "put" | "patch" | "delete";
     path: string;
@@ -96,7 +104,10 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
       query?: z.ZodObject;
       body?: z.ZodType;
     };
-    responses: Record<string, { description: string; content?: Record<string, { schema: z.ZodType }> }>;
+    responses: Record<
+      string,
+      { description: string; content?: Record<string, { schema: z.ZodType }> }
+    >;
   }) => {
     registry.registerPath({
       ...operation,
@@ -118,15 +129,23 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
       responses: { ...commonErrorResponses, ...operation.responses },
     });
   };
-  
+
   for (const method of ["get", "put"] as const) {
     addOperation({
       method,
       path: "/settings/collection-schedule",
       summary: method === "get" ? "共通のRSS収集設定を取得" : "共通のRSS収集設定を保存",
-      description: "毎時Cronから実行します。保存や記事一覧の更新では即時取得しません。間隔の起点はUTC epochです。保存時に次の時間境界へ予定を再計算し、実行中ジョブと失敗後の待機期限を維持します。未設定時は1時間間隔です。next_fetch_atは有効な購読先の最も早い予定で、取得完了時刻ではありません。",
+      description:
+        "毎時Cronから実行します。保存や記事一覧の更新では即時取得しません。間隔の起点はUTC epochです。保存時に次の時間境界へ予定を再計算し、実行中ジョブと失敗後の待機期限を維持します。未設定時は1時間間隔です。next_fetch_atは有効な購読先の最も早い予定で、取得完了時刻ではありません。",
       ...(method === "put" ? { request: { body: CollectionScheduleSchema } } : {}),
-      responses: { 200: jsonResponse(dataResponse(CollectionScheduleSchema.extend({ next_fetch_at: z.string().datetime().nullable() })), "保存済み設定と最も早い取得予定です。") },
+      responses: {
+        200: jsonResponse(
+          dataResponse(
+            CollectionScheduleSchema.extend({ next_fetch_at: z.string().datetime().nullable() }),
+          ),
+          "保存済み設定と最も早い取得予定です。",
+        ),
+      },
     });
   }
 
@@ -155,16 +174,13 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
   const emptyResponse = { description: "成功しました。" };
   const emptyBody = z.object({}).openapi("EmptyRequest");
   const nullableIdSchema = z.string().nullable();
-  
+
   addOperation({
     method: "get",
     path: "/health",
     summary: "稼働確認",
     responses: {
-      200: jsonResponse(
-        dataResponse(z.object({ status: z.literal("ok") })),
-        "稼働中です。",
-      ),
+      200: jsonResponse(dataResponse(z.object({ status: z.literal("ok") })), "稼働中です。"),
     },
   });
   addOperation({
@@ -223,20 +239,28 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     method: "post",
     path: "/folders/{id}/move",
     summary: "同じ親の中でフォルダの表示順を変更",
-    description: "現在の順序で隣接する兄弟フォルダと位置を入れ替え、兄弟のsortOrderを単一SQLで正規化します。親は変更しません。先頭・末尾を越える移動は順序を維持します。",
+    description:
+      "現在の順序で隣接する兄弟フォルダと位置を入れ替え、兄弟のsortOrderを単一SQLで正規化します。親は変更しません。先頭・末尾を越える移動は順序を維持します。",
     request: { params: idParams, body: z.object({ direction: z.enum(["up", "down"]) }) },
-    responses: { 204: emptyResponse, 404: jsonResponse(ErrorResponseSchema, "フォルダが見つかりません。") },
+    responses: {
+      204: emptyResponse,
+      404: jsonResponse(ErrorResponseSchema, "フォルダが見つかりません。"),
+    },
   });
   addOperation({
     method: "delete",
     path: "/folders/{id}",
     summary: "フォルダ削除",
-    description: "子フォルダと購読先は親フォルダへ移動します。最上位では子フォルダは最上位、購読先は未分類へ移ります。同名フォルダが衝突する場合は何も変更せず409を返します。",
+    description:
+      "子フォルダと購読先は親フォルダへ移動します。最上位では子フォルダは最上位、購読先は未分類へ移ります。同名フォルダが衝突する場合は何も変更せず409を返します。",
     request: { params: idParams },
     responses: {
       204: emptyResponse,
       404: jsonResponse(ErrorResponseSchema, "フォルダが見つかりません。"),
-      409: jsonResponse(ErrorResponseSchema, "移動先に同名の子フォルダがあります（FOLDER_DELETE_NAME_CONFLICT）。"),
+      409: jsonResponse(
+        ErrorResponseSchema,
+        "移動先に同名の子フォルダがあります（FOLDER_DELETE_NAME_CONFLICT）。",
+      ),
     },
   });
   addOperation({
@@ -244,10 +268,13 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     path: "/sources",
     summary: "購読先一覧",
     responses: {
-      200: jsonResponse(dataResponse(z.array(SourceSchema.extend({ unreadCount: z.number().int().nonnegative() }))), "購読先一覧です。未読数は記事一覧と同じ保持条件で集計します。"),
+      200: jsonResponse(
+        dataResponse(z.array(SourceSchema.extend({ unreadCount: z.number().int().nonnegative() }))),
+        "購読先一覧です。未読数は記事一覧と同じ保持条件で集計します。",
+      ),
     },
   });
-  
+
   const sourceInputSchema = z.object({
     url: z.string().url().max(2048),
     folderId: nullableIdSchema.optional(),
@@ -276,11 +303,15 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     },
     responses: {
       200: jsonResponse(
-        dataResponse(z.array(z.object({
-          status: z.enum(["added", "existing", "error"]),
-          source: SourceSchema.optional(),
-          code: z.string().optional(),
-        }))),
+        dataResponse(
+          z.array(
+            z.object({
+              status: z.enum(["added", "existing", "error"]),
+              source: SourceSchema.optional(),
+              code: z.string().optional(),
+            }),
+          ),
+        ),
         "各購読先の処理結果です。",
       ),
     },
@@ -289,12 +320,21 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     method: "patch",
     path: "/sources/{id}",
     summary: "購読先更新",
-    description: "URLを含む更新は編集開始時のgenerationをexpectedGenerationとして必ず指定します。不一致なら変更せず409を返します。URL変更時は旧URLの取得ジョブを無効化し、次回の定期収集を待ちます。記事キー・既存記事・既読・保存状態は維持します。同じGUIDや記事URLのキーは引き続き重複排除され、配信元の変更でキーが変わる記事は新規記事となります。一時停止からの再開も共通の収集設定と失敗後の待機期限に従います。",
+    description:
+      "URLを含む更新は編集開始時のgenerationをexpectedGenerationとして必ず指定します。不一致なら変更せず409を返します。URL変更時は旧URLの取得ジョブを無効化し、次回の定期収集を待ちます。記事キー・既存記事・既読・保存状態は維持します。同じGUIDや記事URLのキーは引き続き重複排除され、配信元の変更でキーが変わる記事は新規記事となります。一時停止からの再開も共通の収集設定と失敗後の待機期限に従います。",
     request: {
       params: idParams,
       body: z.object({
         url: z.string().url().max(2048).optional(),
-        expectedGeneration: z.number().int().min(1).max(2_147_483_647).optional().describe("URLを含む更新では必須。編集開始時に取得したgenerationを指定し、不一致時は409になります。"),
+        expectedGeneration: z
+          .number()
+          .int()
+          .min(1)
+          .max(2_147_483_647)
+          .optional()
+          .describe(
+            "URLを含む更新では必須。編集開始時に取得したgenerationを指定し、不一致時は409になります。",
+          ),
         folderId: nullableIdSchema.optional(),
         title: z.string().max(100).optional(),
         status: z.enum(["active", "paused"]).optional(),
@@ -302,7 +342,10 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     },
     responses: {
       200: jsonResponse(dataResponse(SourceSchema), "更新後の購読先です。"),
-      409: jsonResponse(ErrorResponseSchema, "URLが別の購読先と重複しているか、他の更新と競合しました。"),
+      409: jsonResponse(
+        ErrorResponseSchema,
+        "URLが別の購読先と重複しているか、他の更新と競合しました。",
+      ),
       404: jsonResponse(ErrorResponseSchema, "購読先が見つかりません。"),
     },
   });
@@ -363,7 +406,8 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     method: "patch",
     path: "/articles/{id}",
     summary: "記事の状態を更新",
-    description: "read、starred、readLaterは値で指定します。expectedVersionを指定すると競合を検出できます。",
+    description:
+      "read、starred、readLaterは値で指定します。expectedVersionを指定すると競合を検出できます。",
     request: {
       params: articleParams,
       body: z.object({
@@ -463,14 +507,15 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     summary: "処理状況",
     responses: {
       200: jsonResponse(
-        dataResponse(z.object({
-          lastTickAt: z.string().datetime().nullable(),
-          activeSources: z.number(),
-          failingSources: z.number(),
-        })),
+        dataResponse(
+          z.object({
+            lastTickAt: z.string().datetime().nullable(),
+            activeSources: z.number(),
+            failingSources: z.number(),
+          }),
+        ),
         "定期処理と購読先の状況です。",
       ),
     },
   });
-
 }

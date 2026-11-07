@@ -4,31 +4,31 @@
 
 ## エンドポイント
 
-| Method / Path | 入力・役割 | 成功 |
-|---|---|---|
-| GET /me | 本人確認と固定保持日数 | 200 |
-| GET /folders | 階層と並び順 | 200 |
-| POST /folders | name, parentId | 201 |
-| PATCH /folders/:id | name, parentId, sortOrder | 200 |
-| POST /folders/:id/move | direction: up / down。同じ親の隣接フォルダと表示順を交換 | 204 |
-| DELETE /folders/:id | 子/購読を親に移動 | 204 |
-| GET /sources | active/paused/archived、設定のgeneration、取得状態、購読先別未読数 | 200 |
-| POST /sources | url, folderId, title optional | 201（初回取得は非同期） |
-| PATCH /sources/:id | url, folderId, title, status, expectedGeneration（url指定時は必須） | 200 |
-| DELETE /sources/:id | アーカイブ化 | 204 |
-| POST /sources/import | sources配列（最大5件） | 200、追加/既存/エラー内訳 |
-| GET /subscriptions.opml | 購読とフォルダをXML出力 | 200 |
-| GET /articles | scope, folderId, sourceId, boardId, cursor, limit | 200 |
-| GET /articles/:id | 保存済み記事と状態 | 200 |
-| PATCH /articles/:id | read, starred, readLater, expectedVersion | 200 |
-| POST /articles/read | articleIds（最大50）、read | 200 |
-| GET /boards | ボード一覧 | 200 |
-| POST /boards | name | 201 |
-| PATCH /boards/:id | name, sortOrder | 200 |
-| DELETE /boards/:id | 所属解除 | 204 |
-| PUT /boards/:id/articles/:articleId | 冪等にボード保存 | 204 |
-| DELETE /boards/:id/articles/:articleId | ボード保存解除 | 204 |
-| GET /status | 最終tick、active件数、失敗中件数 | 200 |
+| Method / Path                          | 入力・役割                                                          | 成功                      |
+| -------------------------------------- | ------------------------------------------------------------------- | ------------------------- |
+| GET /me                                | 本人確認と固定保持日数                                              | 200                       |
+| GET /folders                           | 階層と並び順                                                        | 200                       |
+| POST /folders                          | name, parentId                                                      | 201                       |
+| PATCH /folders/:id                     | name, parentId, sortOrder                                           | 200                       |
+| POST /folders/:id/move                 | direction: up / down。同じ親の隣接フォルダと表示順を交換            | 204                       |
+| DELETE /folders/:id                    | 子/購読を親に移動                                                   | 204                       |
+| GET /sources                           | active/paused/archived、設定のgeneration、取得状態、購読先別未読数  | 200                       |
+| POST /sources                          | url, folderId, title optional                                       | 201（初回取得は非同期）   |
+| PATCH /sources/:id                     | url, folderId, title, status, expectedGeneration（url指定時は必須） | 200                       |
+| DELETE /sources/:id                    | アーカイブ化                                                        | 204                       |
+| POST /sources/import                   | sources配列（最大5件）                                              | 200、追加/既存/エラー内訳 |
+| GET /subscriptions.opml                | 購読とフォルダをXML出力                                             | 200                       |
+| GET /articles                          | scope, folderId, sourceId, boardId, cursor, limit                   | 200                       |
+| GET /articles/:id                      | 保存済み記事と状態                                                  | 200                       |
+| PATCH /articles/:id                    | read, starred, readLater, expectedVersion                           | 200                       |
+| POST /articles/read                    | articleIds（最大50）、read                                          | 200                       |
+| GET /boards                            | ボード一覧                                                          | 200                       |
+| POST /boards                           | name                                                                | 201                       |
+| PATCH /boards/:id                      | name, sortOrder                                                     | 200                       |
+| DELETE /boards/:id                     | 所属解除                                                            | 204                       |
+| PUT /boards/:id/articles/:articleId    | 冪等にボード保存                                                    | 204                       |
+| DELETE /boards/:id/articles/:articleId | ボード保存解除                                                      | 204                       |
+| GET /status                            | 最終tick、active件数、失敗中件数                                    | 200                       |
 
 `scope` には `all`、`unread`、`read-later`、`starred` を指定します。フォルダを指定すると、その子孫にある購読先の記事も対象になります。`cursor` の順序キーは検証し、SQL に直接連結しません。
 

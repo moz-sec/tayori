@@ -101,8 +101,12 @@ export async function sha256(value: string): Promise<string> {
 export function isSafeFeedTarget(input: string): boolean {
   try {
     const url = new URL(input);
-    return (url.protocol === "http:" || url.protocol === "https:") &&
-      !url.username && !url.password && !isUnsafeHost(url.hostname);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username &&
+      !url.password &&
+      !isUnsafeHost(url.hostname)
+    );
   } catch {
     return false;
   }
@@ -114,8 +118,10 @@ function resolveArticleUrl(item: XmlObject, baseUrl: string): string | null {
   if (typeof linkValue === "string") raw = linkValue;
   else if (Array.isArray(linkValue)) {
     const links = linkValue.map(asObject).filter((link): link is XmlObject => link !== null);
-    const selected = links.find((link) => link["@_rel"] === "alternate") ??
-      links.find((link) => !link["@_rel"]) ?? links[0];
+    const selected =
+      links.find((link) => link["@_rel"] === "alternate") ??
+      links.find((link) => !link["@_rel"]) ??
+      links[0];
     raw = selected ? String(selected["@_href"] ?? "") : null;
   } else {
     const link = asObject(linkValue);
@@ -134,7 +140,7 @@ function resolveArticleUrl(item: XmlObject, baseUrl: string): string | null {
 
 function asObject(value: unknown): XmlObject | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as XmlObject
+    ? (value as XmlObject)
     : null;
 }
 
@@ -160,13 +166,19 @@ function cleanText(value: string): string {
 
 function decodeEntities(value: string): string {
   const named: Record<string, string> = {
-    amp: "&", apos: "'", gt: ">", lt: "<", nbsp: " ", quot: '"',
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
   };
   return value.replace(/&(#x[\da-f]+|#\d+|amp|apos|gt|lt|nbsp|quot);/gi, (entity, body: string) => {
     if (body[0] !== "#") return named[body.toLowerCase()] ?? entity;
-    const codePoint = body[1]?.toLowerCase() === "x"
-      ? Number.parseInt(body.slice(2), 16)
-      : Number.parseInt(body.slice(1), 10);
+    const codePoint =
+      body[1]?.toLowerCase() === "x"
+        ? Number.parseInt(body.slice(2), 16)
+        : Number.parseInt(body.slice(1), 10);
     try {
       return Number.isFinite(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
         ? String.fromCodePoint(codePoint)

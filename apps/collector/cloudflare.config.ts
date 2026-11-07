@@ -21,8 +21,10 @@ export default defineConfig(({ mode }) => {
       env: {
         DB: bindings.d1({
           name: preview ? "tayori-preview-db" : "tayori-db",
-          id: (preview ? process.env.TAYORI_PREVIEW_D1_DATABASE_ID : process.env.TAYORI_D1_DATABASE_ID)
-            ?? "00000000-0000-4000-8000-000000000001",
+          id:
+            (preview
+              ? process.env.TAYORI_PREVIEW_D1_DATABASE_ID
+              : process.env.TAYORI_D1_DATABASE_ID) ?? "00000000-0000-4000-8000-000000000001",
         }),
         JOBS: bindings.queue<QueueMessage>({ name: queueName }),
       },

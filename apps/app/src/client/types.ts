@@ -40,6 +40,16 @@ export interface Article {
   version: number;
 }
 
-export interface Page<T> { data: T; nextCursor?: string | null }
-export interface ImportOutline { title: string; url: string; siteUrl?: string; folderPath: string[] }
-export type FolderDialog = { mode: "create"; parentId: string | null } | { mode: "edit"; folder: Folder };
+export interface Page<T> {
+  data: T;
+  nextCursor?: string | null;
+}
+export interface ImportOutline {
+  title: string;
+  url: string;
+  siteUrl?: string;
+  folderPath: string[];
+}
+export type FolderDialog =
+  | { mode: "create"; parentId: string | null }
+  | { mode: "edit"; folder: Folder };

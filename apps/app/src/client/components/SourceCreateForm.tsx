@@ -31,7 +31,11 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
     if (pending) return;
     const target = restoreFocusRef.current;
     restoreFocusRef.current = null;
-    if (!error && target?.isConnected && (document.activeElement === document.body || document.activeElement === target)) {
+    if (
+      !error &&
+      target?.isConnected &&
+      (document.activeElement === document.body || document.activeElement === target)
+    ) {
       target.focus({ preventScroll: true });
     }
   }, [pending, error]);
@@ -41,7 +45,8 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
     if (submitting.current) return;
     submitting.current = true;
     const active = document.activeElement;
-    const focusTarget = active instanceof HTMLElement && event.currentTarget.contains(active) ? active : null;
+    const focusTarget =
+      active instanceof HTMLElement && event.currentTarget.contains(active) ? active : null;
     let focusMoved = false;
     const trackFocus = (event: FocusEvent) => {
       if (event.target !== document.body && event.target !== focusTarget) focusMoved = true;
@@ -53,40 +58,96 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
     try {
       await onSubmit(event);
       if (!focusMoved) restoreFocusRef.current = focusTarget;
-    }
-    catch (cause) { setError(formError(cause, "source")); }
-    finally {
+    } catch (cause) {
+      setError(formError(cause, "source"));
+    } finally {
       stopFocusTrackingRef.current?.();
       stopFocusTrackingRef.current = null;
       submitting.current = false;
       setPending(false);
     }
   };
-  const errorMessage = <p ref={errorRef} id={errorId} role="alert" tabIndex={-1} className="text-sm text-error">{error?.message}</p>;
+  const errorMessage = (
+    <p ref={errorRef} id={errorId} role="alert" tabIndex={-1} className="text-sm text-error">
+      {error?.message}
+    </p>
+  );
 
-  return <form ref={formRef} aria-label="購読先を追加" aria-busy={pending} className="mt-3 rounded-box bg-base-200 p-3" onSubmit={(event) => void submit(event)} onInput={(event) => {
-    const target = event.target;
-    if (error?.field && (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) && target.name === error.field) setError(null);
-  }}>
-    <p className="mb-2 text-xs font-semibold">購読先を追加</p>
-    {error && !error.field && errorMessage}
-    <fieldset className="space-y-2" disabled={pending}>
-      <label className="block text-xs font-semibold">
-        RSS / Atom URL
-        <input className="input input-bordered input-sm mt-1 w-full" name="url" type="url" maxLength={2048} autoComplete="off" spellCheck={false} placeholder="https://example.com/feed.xml" required aria-invalid={error?.field === "url" || undefined} aria-describedby={error?.field === "url" ? `${helpId} ${errorId}` : helpId} />
-      </label>
-      <p id={helpId} className="text-xs text-base-content/70">RSSまたはAtomのフィードURLを入力してください。</p>
-      {error?.field === "url" && errorMessage}
-      <label className="block text-xs font-semibold">
-        表示名（任意）
-        <input className="input input-bordered input-sm mt-1 w-full" name="title" maxLength={100} autoComplete="off" placeholder="表示名（任意）" aria-invalid={error?.field === "title" || undefined} aria-describedby={error?.field === "title" ? errorId : undefined} />
-      </label>
-      {error?.field === "title" && errorMessage}
-      <div>
-        <label htmlFor={folderId} className="block text-xs font-semibold">所属フォルダ</label>
-        <select id={folderId} className="select select-bordered select-sm mt-1 w-full" name="folderId" defaultValue=""><option value="">未分類</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{"　".repeat(folder.depth)}{folder.name}</option>)}</select>
-      </div>
-      <button className="btn btn-primary btn-sm w-full" type="submit">{pending ? "購読先を追加中…" : "購読先を追加"}</button>
-    </fieldset>
-  </form>;
+  return (
+    <form
+      ref={formRef}
+      aria-label="購読先を追加"
+      aria-busy={pending}
+      className="mt-3 rounded-box bg-base-200 p-3"
+      onSubmit={(event) => void submit(event)}
+      onInput={(event) => {
+        const target = event.target;
+        if (
+          error?.field &&
+          (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) &&
+          target.name === error.field
+        )
+          setError(null);
+      }}
+    >
+      <p className="mb-2 text-xs font-semibold">購読先を追加</p>
+      {error && !error.field && errorMessage}
+      <fieldset className="space-y-2" disabled={pending}>
+        <label className="block text-xs font-semibold">
+          RSS / Atom URL
+          <input
+            className="input input-bordered input-sm mt-1 w-full"
+            name="url"
+            type="url"
+            maxLength={2048}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="https://example.com/feed.xml"
+            required
+            aria-invalid={error?.field === "url" || undefined}
+            aria-describedby={error?.field === "url" ? `${helpId} ${errorId}` : helpId}
+          />
+        </label>
+        <p id={helpId} className="text-xs text-base-content/70">
+          RSSまたはAtomのフィードURLを入力してください。
+        </p>
+        {error?.field === "url" && errorMessage}
+        <label className="block text-xs font-semibold">
+          表示名（任意）
+          <input
+            className="input input-bordered input-sm mt-1 w-full"
+            name="title"
+            maxLength={100}
+            autoComplete="off"
+            placeholder="表示名（任意）"
+            aria-invalid={error?.field === "title" || undefined}
+            aria-describedby={error?.field === "title" ? errorId : undefined}
+          />
+        </label>
+        {error?.field === "title" && errorMessage}
+        <div>
+          <label htmlFor={folderId} className="block text-xs font-semibold">
+            所属フォルダ
+          </label>
+          <select
+            id={folderId}
+            className="select select-bordered select-sm mt-1 w-full"
+            name="folderId"
+            defaultValue=""
+          >
+            <option value="">未分類</option>
+            {folders.map((folder) => (
+              <option key={folder.id} value={folder.id}>
+                {"　".repeat(folder.depth)}
+                {folder.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button className="btn btn-primary btn-sm w-full" type="submit">
+          {pending ? "購読先を追加中…" : "購読先を追加"}
+        </button>
+      </fieldset>
+    </form>
+  );
 }

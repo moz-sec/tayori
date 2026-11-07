@@ -4,16 +4,16 @@
 
 ## 1. Cloudflareの主な上限
 
-| 対象 | Freeの値 | 参照 |
-|---|---|---|
-| Workers | HTTP/Cron CPU 10ms、10万request/日、128MB | [制限](https://developers.cloudflare.com/workers/platform/limits/) |
-| Cron | アカウント5設定 | 同上 |
-| Queues | 1万操作/日、保持24時間 | [料金](https://developers.cloudflare.com/queues/platform/pricing/) |
-| Queue consumer | 標準CPU30秒、wall time15分という記載。Free実証を先行 | [制限](https://developers.cloudflare.com/queues/platform/limits/) |
-| D1 | 読取500万行/日、書込10万行/日 | [料金](https://developers.cloudflare.com/d1/platform/pricing/) |
-| D1容量 | 1DB 500MB、アカウント合計5GB | [制限](https://developers.cloudflare.com/d1/platform/limits/) |
-| D1実行 | Freeは50クエリ/Worker実行、bind100個/文 | 同上 |
-| D1 Time Travel | Freeは7日 | [バックアップ](https://developers.cloudflare.com/d1/reference/time-travel/) |
+| 対象           | Freeの値                                             | 参照                                                                        |
+| -------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
+| Workers        | HTTP/Cron CPU 10ms、10万request/日、128MB            | [制限](https://developers.cloudflare.com/workers/platform/limits/)          |
+| Cron           | アカウント5設定                                      | 同上                                                                        |
+| Queues         | 1万操作/日、保持24時間                               | [料金](https://developers.cloudflare.com/queues/platform/pricing/)          |
+| Queue consumer | 標準CPU30秒、wall time15分という記載。Free実証を先行 | [制限](https://developers.cloudflare.com/queues/platform/limits/)           |
+| D1             | 読取500万行/日、書込10万行/日                        | [料金](https://developers.cloudflare.com/d1/platform/pricing/)              |
+| D1容量         | 1DB 500MB、アカウント合計5GB                         | [制限](https://developers.cloudflare.com/d1/platform/limits/)               |
+| D1実行         | Freeは50クエリ/Worker実行、bind100個/文              | 同上                                                                        |
+| D1 Time Travel | Freeは7日                                            | [バックアップ](https://developers.cloudflare.com/d1/reference/time-travel/) |
 
 既存の Worker、D1、Queue、ステージング環境の使用量も合算する。D1 の上限に達するとクエリは失敗する。Paid へ変更すると月額料金や従量課金が発生するため、アプリ内の予算設定だけで0円を保証することはできない。
 
@@ -21,12 +21,12 @@
 
 1メッセージ64KB未満、通常成功=write/read/deleteの3操作。tickもカウントする。sendBatchしてもメッセージ単位の操作数は減らない。
 
-| ケース | fetch/日 | tick/日 | 基本操作/日 |
-|---|---:|---:|---:|
-| 50購読先・60分 | 1,200 | 288 | 4,464 |
-| 50購読先・30分 | 2,400 | 288 | 8,064 |
-| 100購読先・60分 | 2,400 | 288 | 8,064 |
-| 100購読先・30分 | 4,800 | 288 | 15,264 |
+| ケース          | fetch/日 | tick/日 | 基本操作/日 |
+| --------------- | -------: | ------: | ----------: |
+| 50購読先・60分  |    1,200 |     288 |       4,464 |
+| 50購読先・30分  |    2,400 |     288 |       8,064 |
+| 100購読先・60分 |    2,400 |     288 |       8,064 |
+| 100購読先・30分 |    4,800 |     288 |      15,264 |
 
 初期は50件・60分を採用。30分一律にしない。再試行、重複送信、初回移行、障害回復分は表に含まない。
 

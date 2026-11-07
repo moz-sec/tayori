@@ -18,12 +18,12 @@ D1 の変更は旧 Worker と互換性のある追加変更に限る。既存の
 
 GitHub の Dependabot alerts で依存関係の既知の脆弱性を継続監視し、Renovate で npm と GitHub Actions の更新 PR を作成する。PR とリリースの検査には、GitHub Actions 上の npm audit と Semgrep CE を使う。
 
-| 担当 | 対象・運用 |
-|---|---|
-| Dependabot alerts | 依存関係の既知の脆弱性を通知。Security and quality の Dependabot alerts で確認 |
-| Renovate | npm workspaces と GitHub Actions の更新 PR。通常更新は日本時間の土曜8時から翌0時まで、同時に最大10件（既定値）。脆弱性修正は通常のスケジュールと上限を待たない |
-| npm audit | 開発依存を含む依存関係を PR・リリース・週次で検査し、high/critical を失敗とする |
-| Semgrep CE | apps / packages のソースコードを PR・リリース・週次で解析 |
+| 担当              | 対象・運用                                                                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dependabot alerts | 依存関係の既知の脆弱性を通知。Security and quality の Dependabot alerts で確認                                                                                 |
+| Renovate          | npm workspaces と GitHub Actions の更新 PR。通常更新は日本時間の土曜8時から翌0時まで、同時に最大10件（既定値）。脆弱性修正は通常のスケジュールと上限を待たない |
+| npm audit         | 開発依存を含む依存関係を PR・リリース・週次で検査し、high/critical を失敗とする                                                                                |
+| Semgrep CE        | apps / packages のソースコードを PR・リリース・週次で解析                                                                                                      |
 
 Community Cloud は通常4時間ごとに実行されるため、通常更新の時間帯を広く設ける。実際の PR 作成時刻は実行状況によって変わり、毎週の作成を保証するものではない。Renovate の PR は自動マージせず、CI を確認して手動でマージする。GitHub の Dependabot alerts は SHA 固定の GitHub Actions にはアラートを生成しないため、Actions の更新内容は別途確認する。
 
@@ -39,14 +39,14 @@ Dependabot の通常のバージョン更新設定は削除する。Renovate App
 
 ## 実行条件と合格基準
 
-| ワークフロー / ジョブ | 条件 | 合格基準 |
-|---|---|---|
-| CI / Workflow lockfile | main向けPR、手動 | gh actions-lock --verifyで全Workflowの依存関係と参照元を検証できる |
-| CI / Test and build | main向けPR、手動 | npm ci、型チェック、既存テスト、両Workerのビルドが成功 |
-| Preview | mainへのpush | 型チェック、テスト、collectorのビルド後、プレビューD1 migration、app Previewと専用collector Workerの配備が成功 |
-| Security / Dependency audit | 同上、リリースからの呼び出し、および毎週月曜09:23 JST | 開発依存を含むnpm auditでhigh/criticalがない |
-| Security / Semgrep | 同上、リリースからの呼び出し、および毎週月曜09:23 JST | p/defaultの静的解析で検出がなく、解析エラーもない |
-| Release | vX.Y.Zタグのpush | main所属確認、Security、型チェック、テスト、ビルド成功後に本番へ反映 |
+| ワークフロー / ジョブ             | 条件                                                  | 合格基準                                                                                                       |
+| --------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| CI / Workflow lockfile            | main向けPR、手動                                      | gh actions-lock --verifyで全Workflowの依存関係と参照元を検証できる                                             |
+| CI / Format, lint, test and build | main向けPR、手動                                      | npm ci、整形の確認、lint、型チェック、既存テスト、両Workerのビルドが成功                                       |
+| Preview                           | mainへのpush                                          | 型チェック、テスト、collectorのビルド後、プレビューD1 migration、app Previewと専用collector Workerの配備が成功 |
+| Security / Dependency audit       | 同上、リリースからの呼び出し、および毎週月曜09:23 JST | 開発依存を含むnpm auditでhigh/criticalがない                                                                   |
+| Security / Semgrep                | 同上、リリースからの呼び出し、および毎週月曜09:23 JST | p/defaultの静的解析で検出がなく、解析エラーもない                                                              |
+| Release                           | vX.Y.Zタグのpush                                      | main所属確認、Security、型チェック、テスト、ビルド成功後に本番へ反映                                           |
 
 Node.js 24、Ubuntu 24.04を使用する。インストールはルートのpackage-lock.jsonを使う。セキュリティ検査はテストの成否に依存せず実行する。週次検査は変更がなくても新たな脆弱性情報・ルールを取り込むために行う。スケジュールはデフォルトブランチ上で実行され、開始時刻は遅延する場合がある。
 
@@ -109,24 +109,24 @@ GitHubリポジトリの **Settings → Environments** で `preview` と `produc
 
 `preview` Environmentには次を登録する。
 
-| 種別 | 名前 | 値 |
-|---|---|---|
-| Variable | `CLOUDFLARE_ACCOUNT_ID` | CloudflareアカウントID |
+| 種別     | 名前                            | 値                                        |
+| -------- | ------------------------------- | ----------------------------------------- |
+| Variable | `CLOUDFLARE_ACCOUNT_ID`         | CloudflareアカウントID                    |
 | Variable | `TAYORI_PREVIEW_D1_DATABASE_ID` | `tayori-preview-db`作成時に表示されたUUID |
-| Secret | `CLOUDFLARE_API_TOKEN` | プレビュー用API Token |
+| Secret   | `CLOUDFLARE_API_TOKEN`          | プレビュー用API Token                     |
 
 Cloudflare Dashboardで `tayori-app` の **Settings → Previews Base** を有効にし、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ALLOWED_EMAIL` をPreviews BaseのSecretsとして登録する。ProductionのSecretsはPreviewに自動継承されない。Preview用の `DB` bindingは`cloudflare.config.ts`がPreview modeで `tayori-preview-db` を指定する。Preview URLにもCloudflare Accessを適用する。
 
 `production` Environmentには次を登録する。
 
-| 種別 | 名前 | 値 |
-|---|---|---|
-| Variable | `CLOUDFLARE_ACCOUNT_ID` | CloudflareアカウントID |
+| 種別     | 名前                    | 値                                |
+| -------- | ----------------------- | --------------------------------- |
+| Variable | `CLOUDFLARE_ACCOUNT_ID` | CloudflareアカウントID            |
 | Variable | `TAYORI_D1_DATABASE_ID` | `tayori-db`作成時に表示されたUUID |
-| Secret | `CLOUDFLARE_API_TOKEN` | 本番用API Token |
-| Secret | `ACCESS_TEAM_DOMAIN` | Cloudflare Accessチームドメイン |
-| Secret | `ACCESS_AUD` | AccessアプリのAudience |
-| Secret | `ALLOWED_EMAIL` | 許可する本人メールアドレス |
+| Secret   | `CLOUDFLARE_API_TOKEN`  | 本番用API Token                   |
+| Secret   | `ACCESS_TEAM_DOMAIN`    | Cloudflare Accessチームドメイン   |
+| Secret   | `ACCESS_AUD`            | AccessアプリのAudience            |
+| Secret   | `ALLOWED_EMAIL`         | 許可する本人メールアドレス        |
 
 ### 4. Workers Buildsとの二重配備を防ぐ
 
@@ -154,14 +154,14 @@ semgrep scan --config p/default --error --strict --metrics=off --disable-version
 
 GitHub Settings → Environmentsで `production` を作成し、以下を登録する。Environmentのデプロイ対象は `v*` タグに限定する。Rulesetsでmainへの直接pushとリリースタグの変更・削除を制限し、タグ作成者を管理する。これらのGitHub側設定はまだ適用していない。手動承認を追加したい場合は、利用プランで対応するEnvironmentのrequired reviewersを設定する。
 
-| 種別 | 名前 | 内容 |
-|---|---|---|
-| Variable | CLOUDFLARE_ACCOUNT_ID | 本番のCloudflareアカウントID |
-| Variable | TAYORI_D1_DATABASE_ID | 本番D1のUUID。両Workerのビルドとmigrationで同じ値を利用 |
-| Secret | CLOUDFLARE_API_TOKEN | 対象アカウントに限定したWorkersデプロイ、D1 migration、Queue設定に必要な権限のトークン |
-| Secret | ACCESS_TEAM_DOMAIN | Accessチームドメイン |
-| Secret | ACCESS_AUD | AccessアプリのAudience |
-| Secret | ALLOWED_EMAIL | 許可する本人メール |
+| 種別     | 名前                  | 内容                                                                                   |
+| -------- | --------------------- | -------------------------------------------------------------------------------------- |
+| Variable | CLOUDFLARE_ACCOUNT_ID | 本番のCloudflareアカウントID                                                           |
+| Variable | TAYORI_D1_DATABASE_ID | 本番D1のUUID。両Workerのビルドとmigrationで同じ値を利用                                |
+| Secret   | CLOUDFLARE_API_TOKEN  | 対象アカウントに限定したWorkersデプロイ、D1 migration、Queue設定に必要な権限のトークン |
+| Secret   | ACCESS_TEAM_DOMAIN    | Accessチームドメイン                                                                   |
+| Secret   | ACCESS_AUD            | AccessアプリのAudience                                                                 |
+| Secret   | ALLOWED_EMAIL         | 許可する本人メール                                                                     |
 
 `preview` Environmentには `CLOUDFLARE_ACCOUNT_ID`、`TAYORI_PREVIEW_D1_DATABASE_ID`、`CLOUDFLARE_API_TOKEN` を登録する。`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`ALLOWED_EMAIL` は `tayori-app` のCloudflare Previews Base secretsに設定する。`preview`で使用するAPI Tokenは本番用と分ける。
 

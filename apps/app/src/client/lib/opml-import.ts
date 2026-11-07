@@ -23,7 +23,9 @@ export async function importOpmlRows(
   onProgress: (rows: ImportRow[]) => void,
 ): Promise<{ rows: ImportRow[]; interrupted?: string }> {
   const rows = previous.map((row) => ({ ...row }));
-  const targets = rows.flatMap((row, index) => row.status === "pending" || row.status === "error" ? [index] : []);
+  const targets = rows.flatMap((row, index) =>
+    row.status === "pending" || row.status === "error" ? [index] : [],
+  );
   if (!targets.length) return { rows };
   let folderIds: Map<string, string>;
   try {
@@ -36,26 +38,47 @@ export async function importOpmlRows(
     try {
       const sources = batchIndexes.map((index) => {
         const item = rows[index].outline;
-        return { url: item.url, title: item.title, siteUrl: item.siteUrl, folderId: folderIds.get(JSON.stringify(item.folderPath)) ?? null };
+        return {
+          url: item.url,
+          title: item.title,
+          siteUrl: item.siteUrl,
+          folderId: folderIds.get(JSON.stringify(item.folderPath)) ?? null,
+        };
       });
       const response = await request<Page<ImportResponse[]>>("/sources/import", {
-        method: "POST", body: JSON.stringify({ sources }),
+        method: "POST",
+        body: JSON.stringify({ sources }),
       });
-      if (!Array.isArray(response.data) || response.data.length !== batchIndexes.length
-          || response.data.some((result) => !result || !["added", "existing", "error"].includes(result.status))) {
+      if (
+        !Array.isArray(response.data) ||
+        response.data.length !== batchIndexes.length ||
+        response.data.some(
+          (result) => !result || !["added", "existing", "error"].includes(result.status),
+        )
+      ) {
         throw new Error("INVALID_IMPORT_RESPONSE");
       }
       response.data.forEach((result, position) => {
         const index = batchIndexes[position];
-        rows[index] = { outline: rows[index].outline, status: result.status,
-          ...(result.status === "error" ? { error: humanError(new Error(result.code ?? "INVALID_SOURCE")) } : {}) };
+        rows[index] = {
+          outline: rows[index].outline,
+          status: result.status,
+          ...(result.status === "error"
+            ? { error: humanError(new Error(result.code ?? "INVALID_SOURCE")) }
+            : {}),
+        };
       });
       onProgress([...rows]);
     } catch (error) {
       const reason = `結果を確認できませんでした。${humanError(error)} 再試行時に登録済みか確認します。`;
-      for (const index of batchIndexes) rows[index] = { outline: rows[index].outline, status: "error", error: reason };
+      for (const index of batchIndexes)
+        rows[index] = { outline: rows[index].outline, status: "error", error: reason };
       onProgress([...rows]);
-      return { rows, interrupted: "通信または応答のエラーで取り込みを中断しました。失敗・未処理分を再試行できます。" };
+      return {
+        rows,
+        interrupted:
+          "通信または応答のエラーで取り込みを中断しました。失敗・未処理分を再試行できます。",
+      };
     }
   }
   return { rows };

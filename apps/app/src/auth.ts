@@ -62,7 +62,14 @@ function normalizeAccessIssuer(teamDomain: string): string | null {
   try {
     const candidate = teamDomain.includes("://") ? teamDomain : `https://${teamDomain}`;
     const url = new URL(candidate);
-    if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
+    if (
+      url.protocol !== "https:" ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      url.username ||
+      url.password
+    ) {
       return null;
     }
     return url.origin;
@@ -72,5 +79,10 @@ function normalizeAccessIssuer(teamDomain: string): string | null {
 }
 
 function isLocalDevelopmentHost(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    hostname === "::1"
+  );
 }

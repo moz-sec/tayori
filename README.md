@@ -108,12 +108,18 @@ npm run test --workspace @tayori/collector
 ### 変更後の確認
 
 ```sh
+npm run format:check
+npm run lint
 npm run typecheck
 npm test
 npm run build
 ```
 
-型チェック、全ワークスペースのテスト、両 Worker のビルドを実行します。D1 のスキーマや運用の詳細は [`docs/`](docs/) を参照してください。
+oxfmt による整形の確認、oxlint によるコードの検査、markdownlint による Markdown の検査、型チェック、全ワークスペースのテスト、両 Worker のビルドを実行します。D1 のスキーマや運用の詳細は [`docs/`](docs/) を参照してください。
+
+`npm run lint:code` と `npm run lint:md` で個別に検査できます。`npm run lint:fix` は、両方の lint で自動修正できる指摘を修正します。CI でも `npm run lint` を実行します。
+
+`npm run format` でコード、設定ファイル、Markdown を整形できます。日本語の段落は自動で折り返さず、Markdown 内のコードブロックも整形しません。CI でも `npm run format:check` を実行します。
 
 ## CI/CD
 

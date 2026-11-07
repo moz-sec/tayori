@@ -2,14 +2,26 @@
 @plugin "daisyui";
 
 :root {
-  font-family: Inter, "Noto Sans JP", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter, "Noto Sans JP", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   font-optical-sizing: auto;
 }
 
-body { min-width: 320px; min-height: 100vh; margin: 0; font-size: 1rem; line-height: 1.5; }
-button, input, select { font: inherit; }
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+button,
+input,
+select {
+  font: inherit;
+}
 
 /* Shared interaction treatment; palette and radii stay owned by daisyUI. */
 :where(button, a, input, select, summary):focus-visible {
@@ -31,25 +43,54 @@ button, input, select { font: inherit; }
   gap: 0.5rem !important;
   padding: 0.5rem !important;
 }
-.tayori-folder-actions > button { width: 100%; height: auto; min-height: 2.75rem; white-space: normal; }
+.tayori-folder-actions > button {
+  width: 100%;
+  height: auto;
+  min-height: 2.75rem;
+  white-space: normal;
+}
 @media (any-pointer: coarse) {
   .tayori-sidebar :is(button, a, summary),
   main button,
-  main label:has(input[type="checkbox"]) { min-height: 2.75rem; }
+  main label:has(input[type="checkbox"]) {
+    min-height: 2.75rem;
+  }
   .tayori-sidebar button,
-  main button { min-width: 2.75rem; }
-  .tayori-sidebar nav button { width: 100%; }
+  main button {
+    min-width: 2.75rem;
+  }
+  .tayori-sidebar nav button {
+    width: 100%;
+  }
   .tayori-sidebar input,
-  .tayori-sidebar select { min-height: 2.75rem; }
-  .tayori-sidebar :is(button, a, summary), main button { touch-action: manipulation; }
+  .tayori-sidebar select {
+    min-height: 2.75rem;
+  }
+  .tayori-sidebar :is(button, a, summary),
+  main button {
+    touch-action: manipulation;
+  }
 }
 @media (any-pointer: coarse) {
-  .tayori-sidebar a { display: inline-flex; align-items: center; min-width: 2.75rem; }
-  .tayori-sidebar :is(button, a, summary), main button { max-width: 100%; overflow-wrap: anywhere; }
-  main button { height: auto; white-space: normal; }
+  .tayori-sidebar a {
+    display: inline-flex;
+    align-items: center;
+    min-width: 2.75rem;
+  }
+  .tayori-sidebar :is(button, a, summary),
+  main button {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  main button {
+    height: auto;
+    white-space: normal;
+  }
 }
 /* Feed names can contain long words or URLs without spaces. */
-main h1 { overflow-wrap: anywhere; }
+main h1 {
+  overflow-wrap: anywhere;
+}
 
 /* The drawer controls sit outside the sidebar and main content containers. */
 @media (any-pointer: coarse) {
@@ -59,6 +100,10 @@ main h1 { overflow-wrap: anywhere; }
     min-height: 2.75rem;
     touch-action: manipulation;
   }
-  .tayori-main-content > main { padding-top: 4.75rem; }
-  #tayori-sidebar > .drawer-side > aside { padding-top: 4.75rem; }
+  .tayori-main-content > main {
+    padding-top: 4.75rem;
+  }
+  #tayori-sidebar > .drawer-side > aside {
+    padding-top: 4.75rem;
+  }
 }

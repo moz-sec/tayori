@@ -69,17 +69,17 @@ erDiagram
 
 IDはUUID等の不透明文字列、日時はUTCのUnix時刻（秒）に統一する。個人用のためユーザーテーブルは初期に設けない。
 
-| テーブル | 主な列・制約 |
-|---|---|
-| folders | id, parent_id nullable, name, sort_order。循環禁止。親ごとの名前一意（ルートも正規化して制約） |
-| sources | id, kind=rss, normalized_url UNIQUE, title, folder_id, status(active/paused/archived), interval_minutes, next_fetch_at, last_checked_at, last_success_at, etag, last_modified, error_code, error_count, generation |
-| item_keys | id, source_id, key_hash, first_seen_at。UNIQUE(source_id,key_hash)。本文削除後も残す |
-| articles | id=item_keys.id, title, url, summary_text, published_at nullable, content_hash, read_at nullable, starred, read_later, first_seen_at, expires_at, updated_at, version |
-| boards | id, name UNIQUE, sort_order |
-| board_articles | board_id, article_id, created_at。複合主キー |
-| fetch_jobs | id, source_id, generation, status(pending/sent/running/done/failed), lease_until, attempts, created_at, completed_at。稼働中ジョブは購読先ごとに1件 |
-| daily_usage | day_utc PK, reserved_queue_ops, new_articles, observed_rows_read, observed_rows_written。上限付き原子的加算 |
-| app_state | key PK, value。収集停止、整理カーソル、最終tick等の少数の状態 |
+| テーブル       | 主な列・制約                                                                                                                                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| folders        | id, parent_id nullable, name, sort_order。循環禁止。親ごとの名前一意（ルートも正規化して制約）                                                                                                                     |
+| sources        | id, kind=rss, normalized_url UNIQUE, title, folder_id, status(active/paused/archived), interval_minutes, next_fetch_at, last_checked_at, last_success_at, etag, last_modified, error_code, error_count, generation |
+| item_keys      | id, source_id, key_hash, first_seen_at。UNIQUE(source_id,key_hash)。本文削除後も残す                                                                                                                               |
+| articles       | id=item_keys.id, title, url, summary_text, published_at nullable, content_hash, read_at nullable, starred, read_later, first_seen_at, expires_at, updated_at, version                                              |
+| boards         | id, name UNIQUE, sort_order                                                                                                                                                                                        |
+| board_articles | board_id, article_id, created_at。複合主キー                                                                                                                                                                       |
+| fetch_jobs     | id, source_id, generation, status(pending/sent/running/done/failed), lease_until, attempts, created_at, completed_at。稼働中ジョブは購読先ごとに1件                                                                |
+| daily_usage    | day_utc PK, reserved_queue_ops, new_articles, observed_rows_read, observed_rows_written。上限付き原子的加算                                                                                                        |
+| app_state      | key PK, value。収集停止、整理カーソル、最終tick等の少数の状態                                                                                                                                                      |
 
 初期スキーマとして [`migrations/0001_initial.sql`](../migrations/0001_initial.sql) を用意した。API の実装に合わせて制約や列を見直し、テストデータを使ってマイグレーションを検証する。
 
