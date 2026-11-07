@@ -436,7 +436,6 @@ describe("source unread counts", () => {
                ('paused', 'Paused', 'https://example.com/b', 'paused', NULL, NULL, ${now}, NULL, 0),
                ('archived', 'Archived', 'https://example.com/c', 'archived', NULL, NULL, ${now}, NULL, 0),
                ('empty', 'Empty', 'https://example.com/d', 'active', NULL, NULL, ${now}, NULL, 0);
-        INSERT INTO boards(id, name) VALUES ('board', 'Saved');
       `);
       const fixtures = [
         ["fresh", "active", now + 1, null, 0, 0],
@@ -444,7 +443,6 @@ describe("source unread counts", () => {
         ["boundary", "active", now, null, 0, 0],
         ["starred", "active", now - 1, null, 1, 0],
         ["later", "active", now - 1, null, 0, 1],
-        ["board-saved", "active", now - 1, null, 0, 0],
         ["multi-saved", "active", now - 1, null, 1, 1],
         ["already-read", "active", now + 1, now - 60, 1, 1],
         ["paused-article", "paused", now + 1, null, 0, 0],
@@ -462,10 +460,6 @@ describe("source unread counts", () => {
           )
           .run(id, id, "https://example.com/" + id, now, expires, readAt, starred, later);
       }
-      for (const id of ["board-saved", "multi-saved"])
-        database.sqlite
-          .prepare("INSERT INTO board_articles(board_id, article_id) VALUES ('board', ?)")
-          .run(id);
       const response = await api.request("http://localhost/api/v1/sources", {}, {
         DB: database.binding,
       } as Env);
@@ -476,7 +470,7 @@ describe("source unread counts", () => {
         expect.arrayContaining([
           expect.objectContaining({
             id: "active",
-            unreadCount: 5,
+            unreadCount: 4,
             lastCheckedAt: new Date((now - 60) * 1000).toISOString(),
             lastSuccessAt: new Date((now - 3600) * 1000).toISOString(),
             nextFetchAt: new Date((now + 3600) * 1000).toISOString(),
@@ -498,7 +492,7 @@ describe("source unread counts", () => {
         {},
         { DB: database.binding } as Env,
       );
-      expect((await articles.json()).data).toHaveLength(5);
+      expect((await articles.json()).data).toHaveLength(4);
       await api.request(
         "http://localhost/api/v1/articles/read",
         {
@@ -514,7 +508,7 @@ describe("source unread counts", () => {
       expect(
         (await updated.json()).data.find((source: { id: string }) => source.id === "active")
           .unreadCount,
-      ).toBe(4);
+      ).toBe(3);
     } finally {
       vi.restoreAllMocks();
       database.sqlite.close();

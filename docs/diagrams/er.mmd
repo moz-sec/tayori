@@ -3,8 +3,6 @@ erDiagram
     FOLDERS o|--o{ SOURCES : contains
     SOURCES ||--o{ ITEM_KEYS : identifies
     ITEM_KEYS ||--o| ARTICLES : payload
-    ARTICLES ||--o{ BOARD_ARTICLES : saved
-    BOARDS ||--o{ BOARD_ARTICLES : contains
     SOURCES ||--o{ FETCH_JOBS : collects
     FOLDERS {
         string id PK
@@ -33,14 +31,6 @@ erDiagram
         boolean starred
         boolean read_later
         int version
-    }
-    BOARDS {
-        string id PK
-        string name UK
-    }
-    BOARD_ARTICLES {
-        string board_id PK, FK
-        string article_id PK, FK
     }
     FETCH_JOBS {
         string id PK
