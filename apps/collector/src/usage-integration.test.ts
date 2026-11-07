@@ -81,7 +81,7 @@ describe("usage control integration", () => {
     db.sqlite.close();
   });
 
-  it("enqueues a tick even when usage request fails", async () => {
+  it("enqueues a tick even when usage and monitoring requests fail", async () => {
     vi.spyOn(Date, "now").mockReturnValue(now);
     vi.spyOn(console, "error").mockImplementation(() => {});
     const fetcher = vi.fn().mockRejectedValue(new Error("offline"));
@@ -105,9 +105,10 @@ describe("usage control integration", () => {
       D1_ROWS_WRITTEN_LIMIT: "100",
       D1_WARNING_RATIO: "0.8",
       D1_MAX_AGE_SECONDS: "3600",
+      MONITOR_WEBHOOK_URL: "https://example.com/hook",
     } as unknown as Env;
     await worker.scheduled({ scheduledTime: now, cron: "0 * * * *", noRetry() {} }, env);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(send).toHaveBeenCalledWith({ schemaVersion: 1, type: "tick", scheduledAt: now });
     db.sqlite.close();
   });

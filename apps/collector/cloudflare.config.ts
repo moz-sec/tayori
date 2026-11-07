@@ -50,6 +50,20 @@ export default defineConfig(({ mode }) => {
               D1_MAX_AGE_SECONDS: bindings.text(process.env.D1_MAX_AGE_SECONDS ?? "7200"),
             }
           : {}),
+        ...(process.env.TAYORI_MONITORING_ENABLED === "true"
+          ? {
+              MONITOR_WEBHOOK_URL: bindings.secret(),
+              MONITOR_TICK_STALE_SECONDS: bindings.text(
+                process.env.MONITOR_TICK_STALE_SECONDS ?? "10800",
+              ),
+              MONITOR_BACKLOG_STALE_SECONDS: bindings.text(
+                process.env.MONITOR_BACKLOG_STALE_SECONDS ?? "10800",
+              ),
+              MONITOR_FAILURE_THRESHOLD: bindings.text(
+                process.env.MONITOR_FAILURE_THRESHOLD ?? "3",
+              ),
+            }
+          : {}),
       },
       triggers: [
         triggers.scheduled({ schedule: "0 * * * *" }),

@@ -100,6 +100,13 @@
 `scope` には `all`、`unread`、`read-later`、`starred` を指定します。フォルダを指定すると、その子孫にある購読先の記事も対象になります。`cursor` の順序キーは検証し、SQL
 に直接連結しません。
 
+`GET /status` の収集状態には次の値も含まれる。日時は ISO 8601 形式である。
+
+- `lastSuccessAt`: 有効な購読先の最新の成功日時。未成功なら null。
+- `oldestPendingAt`: pending、sent、running の最も古いジョブの作成日時。対象がなければ null。
+- `maxConsecutiveFailures`: 有効な購読先の連続失敗数の最大値。対象がなければ 0。
+- `queueBudgetStopped`: 当日 UTC の Queue 予約数が次の4操作を予約できない水準なら true。
+
 `GET /status` の `data.d1Usage` は `state`、`reason`、`metrics`、`snapshot` を返す。
 状態は `disabled`、`ok`、`warning`、`stopped` で、取得不能・期限切れや上限到達時は取り込みを停止する。
 詳細は[D1利用量の監視](15-d1-usage.md)を参照する。
