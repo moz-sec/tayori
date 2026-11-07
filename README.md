@@ -67,6 +67,22 @@ npm run db:migrate:local
 npm run dev
 ```
 
+Git フックは [pre-commit](https://pre-commit.com/) で管理します。
+初回は `npm install` に加えて、次のコマンドをリポジトリルートで実行してください。
+pre-commit のインストールには uv を使います。
+
+```sh
+uv tool install pre-commit
+pre-commit install
+```
+
+以降はコミット時に、整形チェック、コードの lint、Markdown の lint をリポジトリ全体に対して実行します。
+未ステージの変更は pre-commit が一時退避し、ステージされた内容を検査します。
+フックは自動修正しません。指摘が出た場合は `npm run lint:fix` や `npm run format` で修正し、変更を再度ステージしてください。
+
+コミットせずに同じチェックを実行する場合は `pre-commit run`、未ステージの変更も含めて全ファイルを検査する場合は `pre-commit run --all-files` を実行します。
+Git フックはクローンごとに `pre-commit install` で有効にしてください。
+
 ### 開発サーバーの起動
 
 ```sh
