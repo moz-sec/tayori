@@ -230,7 +230,7 @@ api.get("/sources", async (c) => {
          EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))
        GROUP BY k.source_id
      )
-     SELECT s.id, s.folder_id, s.title, s.site_url, s.normalized_url, s.status, s.interval_minutes,
+     SELECT s.id, s.generation, s.folder_id, s.title, s.site_url, s.normalized_url, s.status, s.interval_minutes,
        s.next_fetch_at, s.last_checked_at, s.last_success_at, s.last_error_code, s.consecutive_failures,
        COALESCE(u.unread_count, 0) AS unread_count
      FROM sources s LEFT JOIN unread u ON u.source_id = s.id
@@ -278,6 +278,13 @@ api.patch("/sources/:id", async (c) => {
   const current = await c.env.DB.prepare("SELECT * FROM sources WHERE id = ?")
     .bind(id).first<SourceRow>();
   if (!current) throw new ApiError(404, "SOURCE_NOT_FOUND");
+  // URL edits must carry the generation seen when editing began, not a fresh server-side read.
+  if (body.url !== undefined && body.expectedGeneration === undefined) {
+    throw new ApiError(400, "EXPECTED_SOURCE_GENERATION_REQUIRED");
+  }
+  const expectedGeneration = body.expectedGeneration === undefined
+    ? current.generation : readInteger(body.expectedGeneration, 1, 2_147_483_647);
+  if (expectedGeneration !== current.generation) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
   const folderId = body.folderId === undefined ? current.folder_id : nullableId(body.folderId);
   if (folderId) await requireRow(c.env.DB, "SELECT id FROM folders WHERE id = ?", folderId);
   const status = body.status === undefined ? current.status : readSourceStatus(body.status);
@@ -300,7 +307,7 @@ api.patch("/sources/:id", async (c) => {
              consecutive_failures = 0, last_error_code = NULL, last_error_at = NULL,
              retry_not_before = NULL, next_fetch_at = ? WHERE id = ? AND generation = ?
              AND COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?`,
-        ).bind(folderId, status, title, titleIsCustom, url, nextFetchAt, id, current.generation, storedValue),
+        ).bind(folderId, status, title, titleIsCustom, url, nextFetchAt, id, expectedGeneration, storedValue),
         c.env.DB.prepare(
           `UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ?
            WHERE source_id = ? AND generation <= ? AND status IN ('pending', 'sent', 'running')
@@ -325,7 +332,7 @@ api.patch("/sources/:id", async (c) => {
         `UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?,
            next_fetch_at = ?, generation = generation + 1 WHERE id = ? AND generation = ?
            AND COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?`,
-      ).bind(folderId, status, title, titleIsCustom, nextFetchAt, id, current.generation, storedValue),
+      ).bind(folderId, status, title, titleIsCustom, nextFetchAt, id, expectedGeneration, storedValue),
       c.env.DB.prepare(
         `UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ?
          WHERE source_id = ? AND generation <= ? AND status IN ('pending', 'sent', 'running')
@@ -334,9 +341,10 @@ api.patch("/sources/:id", async (c) => {
     ]);
     if (!updated?.meta.changes) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
   } else {
-    await c.env.DB.prepare(
-      "UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?, generation = generation + 1 WHERE id = ?",
-    ).bind(folderId, status, title, titleIsCustom, id).run();
+    const updated = await c.env.DB.prepare(
+      "UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?, generation = generation + 1 WHERE id = ? AND generation = ?",
+    ).bind(folderId, status, title, titleIsCustom, id, expectedGeneration).run();
+    if (!updated.meta.changes) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
   }
   const updated = await c.env.DB.prepare("SELECT * FROM sources WHERE id = ?").bind(id).first<SourceRow>();
   return c.json({ data: sourceDto(updated!) });
@@ -665,9 +673,11 @@ function articleDto(row: ArticleRow) {
   };
 }
 
+/** Exposes the configuration generation so clients can detect edits made after opening a dialog. */
 function sourceDto(row: SourceRow) {
   return {
     id: row.id,
+    generation: row.generation,
     folderId: row.folder_id,
     title: row.title,
     siteUrl: row.site_url,

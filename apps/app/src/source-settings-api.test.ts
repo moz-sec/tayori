@@ -59,7 +59,10 @@ describe("subscription management API", () => {
 describe("subscription URL correction", () => {
   function patch(db: ReturnType<typeof database>, body: unknown) {
     return api.request("http://localhost/api/v1/sources/source", {
-      method: "PATCH", headers, body: JSON.stringify(body),
+      method: "PATCH", headers, body: JSON.stringify({
+        expectedGeneration: db.sqlite.prepare("SELECT generation FROM sources WHERE id = 'source'").get()!.generation,
+        ...(body as Record<string, unknown>),
+      }),
     }, { DB: db.binding } as Env);
   }
 
@@ -78,6 +81,76 @@ describe("subscription URL correction", () => {
       }], ackAll() {}, retryAll() {}, metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } },
     }, { DB: db.binding, JOBS: { send } } as unknown as Env);
   }
+
+  it("rejects a stale editor snapshot and preserves the newer URL, validators, jobs, and reading state", async () => {
+    const db = database();
+    try {
+      const list = await api.request("http://localhost/api/v1/sources", {}, { DB: db.binding } as Env);
+      const opened = (await list.json()).data[0];
+      expect(opened.generation).toBe(1);
+      const first = await patch(db, { url: "https://example.com/first.xml", expectedGeneration: opened.generation });
+      expect(first.status).toBe(200);
+      expect((await first.json()).data.generation).toBe(2);
+      db.sqlite.exec(`UPDATE sources SET etag = 'new-etag', last_modified = 'new-modified';
+        INSERT INTO fetch_jobs(id, source_id, generation, status) VALUES ('new-job', 'source', 2, 'sent');`);
+      const stale = await patch(db, { url: "https://example.com/stale.xml", expectedGeneration: opened.generation });
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({ error: { code: "SOURCE_VERSION_CONFLICT" } });
+      expect(db.sqlite.prepare("SELECT normalized_url, etag, last_modified, generation FROM sources").get())
+        .toEqual({ normalized_url: "https://example.com/first.xml", etag: "new-etag", last_modified: "new-modified", generation: 2 });
+      expect(db.sqlite.prepare("SELECT status FROM fetch_jobs WHERE id = 'new-job'").get()).toEqual({ status: "sent" });
+      expect(db.sqlite.prepare("SELECT read_at, starred, read_later FROM articles").get())
+        .toEqual({ read_at: 123, starred: 1, read_later: 1 });
+      const latest = await api.request("http://localhost/api/v1/sources", {}, { DB: db.binding } as Env);
+      const current = (await latest.json()).data[0];
+      expect((await patch(db, { url: "https://example.com/accepted.xml", expectedGeneration: current.generation })).status).toBe(200);
+    } finally { db.sqlite.close(); }
+  });
+
+  it("requires an editor generation whenever a URL is supplied", async () => {
+    const db = database();
+    try {
+      const response = await patch(db, { url: "https://example.com/new.xml", expectedGeneration: undefined });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "EXPECTED_SOURCE_GENERATION_REQUIRED" } });
+      expect(db.sqlite.prepare("SELECT generation, normalized_url FROM sources").get())
+        .toEqual({ generation: 1, normalized_url: "https://example.com/feed" });
+    } finally { db.sqlite.close(); }
+  });
+
+  it.each([null, "1", 0, -1, 1.5, 2_147_483_648])("rejects an invalid editor generation: %j", async (expectedGeneration) => {
+    const db = database();
+    try {
+      const response = await patch(db, { url: "https://example.com/new.xml", expectedGeneration });
+      expect(response.status).toBe(400);
+      expect(db.sqlite.prepare("SELECT generation FROM sources").get()).toEqual({ generation: 1 });
+    } finally { db.sqlite.close(); }
+  });
+
+  it("uses the editor generation for non-URL changes as well", async () => {
+    const db = database();
+    try {
+      expect((await patch(db, { title: "他端末の名前", expectedGeneration: 1 })).status).toBe(200);
+      expect((await patch(db, { title: "古い画面の名前", folderId: "folder", expectedGeneration: 1 })).status).toBe(409);
+      expect(db.sqlite.prepare("SELECT title, folder_id, generation FROM sources").get())
+        .toEqual({ title: "他端末の名前", folder_id: null, generation: 2 });
+    } finally { db.sqlite.close(); }
+  });
+
+  it("does not overwrite another mutation racing with a non-URL save", async () => {
+    const db = database();
+    let raced = false;
+    db.state.beforeQuery = (sql) => {
+      if (!raced && sql.includes("UPDATE sources SET folder_id")) {
+        raced = true;
+        db.sqlite.exec("UPDATE sources SET title = '最新の名前', generation = 2");
+      }
+    };
+    try {
+      expect((await patch(db, { title: "古い名前", expectedGeneration: 1 })).status).toBe(409);
+      expect(db.sqlite.prepare("SELECT title, generation FROM sources").get()).toEqual({ title: "最新の名前", generation: 2 });
+    } finally { db.sqlite.close(); }
+  });
 
   it("normalizes a corrected URL, resets old validators and diagnostics, and preserves article keys and state", async () => {
     const db = database();
@@ -249,6 +322,10 @@ describe("subscription URL correction", () => {
     const document = await response.json();
     const operation = document.paths["/api/v1/sources/{id}"].patch;
     expect(operation.requestBody.content["application/json"].schema.properties.url).toMatchObject({ type: "string", maxLength: 2048 });
+    expect(operation.requestBody.content["application/json"].schema.properties.expectedGeneration)
+      .toMatchObject({ type: "integer", minimum: 1 });
+    expect(document.paths["/api/v1/sources"].get.responses["200"].content["application/json"].schema.properties.data.items.properties.generation)
+      .toMatchObject({ type: "integer", minimum: 1 });
     expect(operation.responses["409"]).toBeDefined();
   });
 });

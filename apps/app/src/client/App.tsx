@@ -74,11 +74,11 @@ export function App() {
   }, [currentView, changeSelection]);
   useLayoutEffect(() => { loadedViewRef.current = loadedView; }, [loadedView]);
 
-  /** Reloads folders, feeds, account settings, status, and articles in parallel. */
-  const reload = useCallback(async (append = false, background = false, clearNotice = true) => {
+  /** Reloads data in parallel and confirms success only when the current view accepts the result. */
+  const reload = useCallback(async (append = false, background = false, clearNotice = true): Promise<boolean> => {
     const view = `${scope}:${folderId ?? ""}:${sourceId ?? ""}`;
-    if (view !== currentViewRef.current) return;
-    if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return;
+    if (view !== currentViewRef.current) return false;
+    if (append && (reloadingRef.current || markingReadRef.current || loadedViewRef.current !== view || !nextCursor)) return false;
     const version = ++reloadVersion.current;
     const mutationVersion = getMutationState().version;
     reloadingRef.current = true;
@@ -100,12 +100,12 @@ export function App() {
           return request<Page<Article[]>>(`/articles?${pageQuery}`);
         }) : request<Page<Article[]>>(`/articles?${query}`),
       ]);
-      if (version !== reloadVersion.current || view !== currentViewRef.current) return;
-      if (background && (mutationVersion !== getMutationState().version || dialogOpenRef.current)) return;
+      if (version !== reloadVersion.current || view !== currentViewRef.current) return false;
+      if (background && (mutationVersion !== getMutationState().version || dialogOpenRef.current)) return false;
       setFolders(folderResult.data);
       setSources(sourceResult.data);
-      if (folderId && !folderResult.data.some((folder) => folder.id === folderId)) { setFolderId(null); return; }
-      if (sourceId && !sourceResult.data.some((source) => source.id === sourceId && source.status !== "archived")) { setSourceId(null); return; }
+      if (folderId && !folderResult.data.some((folder) => folder.id === folderId)) { setFolderId(null); return false; }
+      if (sourceId && !sourceResult.data.some((source) => source.id === sourceId && source.status !== "archived")) { setSourceId(null); return false; }
       setRetentionDays(me.data.retentionDays);
       setStatus(statusResult.data);
       setArticles((current) => append ? [...current, ...articleResult.data] : articleResult.data);
@@ -119,13 +119,15 @@ export function App() {
         setNotice("");
         setNoticeError(false);
       }
+      return true;
     } catch (error) {
-      if (version !== reloadVersion.current || view !== currentViewRef.current) return;
-      if (background && mutationVersion !== getMutationState().version) return;
+      if (version !== reloadVersion.current || view !== currentViewRef.current) return false;
+      if (background && mutationVersion !== getMutationState().version) return false;
       if (clearNotice || !noticeErrorRef.current) {
         setNotice(humanError(error));
         setNoticeError(true);
       }
+      return false;
     } finally {
       if (version === reloadVersion.current && view === currentViewRef.current) {
         reloadingRef.current = false;
@@ -408,7 +410,9 @@ export function App() {
         folders={folders}
         onClose={() => setSourceDialog(null)}
         onFallbackFocus={() => refreshButtonRef.current?.focus()}
-        onConflict={async () => { await latestReload.current(false, false, false); }}
+        onConflict={async () => {
+          if (!await latestReload.current(false, false, false)) throw new Error("SOURCE_REFRESH_FAILED");
+        }}
         onCommitted={async (id, archived) => {
           if (archived) setSourceId((current) => current === id ? null : current);
           await latestReload.current();

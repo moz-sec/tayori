@@ -10,6 +10,7 @@ export interface Folder {
 
 export interface Source {
   id: string;
+  generation: number;
   folderId: string | null;
   title: string;
   url: string;
