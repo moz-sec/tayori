@@ -122,7 +122,11 @@ export function Sidebar(props: SidebarProps) {
           <SourceCreateForm folders={flatFolders} onSubmit={onCreateSource} />
           <div className="mt-3 space-y-2 rounded-box bg-base-200 p-3">
             <label htmlFor="opml-file" className="block text-xs font-semibold">OPMLファイルを読み込む</label>
-            <input ref={importInputRef} id="opml-file" name="opml" className="file-input file-input-bordered file-input-xs w-full" type="file" disabled={busy || parsingImport} accept=".opml,.xml,text/xml,application/xml" aria-invalid={!!importError || undefined} aria-describedby={importError ? "opml-file-error" : undefined} onChange={(event) => void selectImportFile(event.currentTarget.files?.[0])} />
+            <input ref={importInputRef} id="opml-file" name="opml" className="file-input file-input-bordered file-input-xs w-full" type="file" disabled={busy || parsingImport} accept=".opml,.xml,text/xml,application/xml" aria-invalid={!!importError || undefined} aria-describedby={importError ? "opml-file-error" : undefined} onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              void selectImportFile(file);
+            }} />
             {importError && <p id="opml-file-error" role="alert" className="text-sm text-error">{importError}</p>}
             {importSummary && <p role="status" className="text-xs text-base-content/70">{importSummary}</p>}
             {importRows.some((row) => row.status === "error" || row.status === "pending") && <ul className="max-h-56 space-y-2 overflow-y-auto text-xs" aria-label="OPML取り込みの未完了項目">

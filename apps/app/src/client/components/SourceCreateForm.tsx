@@ -12,6 +12,8 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const submitting = useRef(false);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const stopFocusTrackingRef = useRef<(() => void) | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
   const errorId = useId();
@@ -24,19 +26,48 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
     else errorRef.current?.focus();
   }, [error, pending]);
 
+  useLayoutEffect(() => () => stopFocusTrackingRef.current?.(), []);
+  useLayoutEffect(() => {
+    if (pending) return;
+    const target = restoreFocusRef.current;
+    restoreFocusRef.current = null;
+    if (!error && target?.isConnected && (document.activeElement === document.body || document.activeElement === target)) {
+      target.focus({ preventScroll: true });
+    }
+  }, [pending, error]);
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submitting.current) return;
     submitting.current = true;
+    const active = document.activeElement;
+    const focusTarget = active instanceof HTMLElement && event.currentTarget.contains(active) ? active : null;
+    let focusMoved = false;
+    const trackFocus = (event: FocusEvent) => {
+      if (event.target !== document.body && event.target !== focusTarget) focusMoved = true;
+    };
+    document.addEventListener("focusin", trackFocus);
+    stopFocusTrackingRef.current = () => document.removeEventListener("focusin", trackFocus);
     setPending(true);
     setError(null);
-    try { await onSubmit(event); }
+    try {
+      await onSubmit(event);
+      if (!focusMoved) restoreFocusRef.current = focusTarget;
+    }
     catch (cause) { setError(formError(cause, "source")); }
-    finally { submitting.current = false; setPending(false); }
+    finally {
+      stopFocusTrackingRef.current?.();
+      stopFocusTrackingRef.current = null;
+      submitting.current = false;
+      setPending(false);
+    }
   };
   const errorMessage = <p ref={errorRef} id={errorId} role="alert" tabIndex={-1} className="text-sm text-error">{error?.message}</p>;
 
-  return <form ref={formRef} aria-label="購読先を追加" aria-busy={pending} className="mt-3 rounded-box bg-base-200 p-3" onSubmit={(event) => void submit(event)} onInput={() => setError(null)}>
+  return <form ref={formRef} aria-label="購読先を追加" aria-busy={pending} className="mt-3 rounded-box bg-base-200 p-3" onSubmit={(event) => void submit(event)} onInput={(event) => {
+    const target = event.target;
+    if (error?.field && (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) && target.name === error.field) setError(null);
+  }}>
     <p className="mb-2 text-xs font-semibold">購読先を追加</p>
     {error && !error.field && errorMessage}
     <fieldset className="space-y-2" disabled={pending}>
