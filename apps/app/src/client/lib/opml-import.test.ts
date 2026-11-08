@@ -16,6 +16,29 @@ beforeEach(() => {
 });
 
 describe("OPML import results", () => {
+  it.each([
+    "D1_DAILY_READ_LIMIT",
+    "D1_DAILY_WRITE_LIMIT",
+    "D1_DATABASE_STORAGE_LIMIT",
+    "D1_ACCOUNT_STORAGE_LIMIT",
+  ])("keeps partial results and stops later batches on %s", async (code) => {
+    mockRequest.mockResolvedValueOnce({ data: [] }).mockResolvedValueOnce({
+      data: [
+        { status: "added" },
+        { status: "existing" },
+        { status: "error", code },
+        { status: "error", code },
+        { status: "error", code },
+      ],
+    });
+    const progress = vi.fn();
+    const result = await importOpmlRows(entries(7), progress);
+    expect(summarizeImport(result.rows)).toBe("追加 1 件、登録済み 1 件、失敗 3 件、未処理 2 件");
+    expect(result.interrupted).toContain("上限");
+    expect(progress).toHaveBeenCalledOnce();
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(result.rows.slice(5).map((row) => row.status)).toEqual(["pending", "pending"]);
+  });
   it("distinguishes added, existing and row errors and retries only failed feeds", async () => {
     mockRequest.mockResolvedValueOnce({ data: [] }).mockResolvedValueOnce({
       data: [

@@ -298,7 +298,8 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     method: "post",
     path: "/sources/import",
     summary: "購読先を一括インポート",
-    description: "1回につき最大5件を受け付け、追加・既存・エラーの結果を返します。",
+    description:
+      "1回につき最大5件を受け付け、追加・既存・エラーの結果を返します。D1上限時も確認済みの結果を保持し、残りは上限コードの項目別エラーとして返します。",
     request: {
       body: z.object({
         sources: z.array(sourceInputSchema).min(1).max(5),
@@ -315,7 +316,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
             }),
           ),
         ),
-        "各購読先の処理結果です。",
+        "各購読先の処理結果です。項目別のD1上限コードで中断を区別します。",
       ),
     },
   });

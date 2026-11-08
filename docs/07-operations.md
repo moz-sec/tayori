@@ -94,10 +94,14 @@ Cloudflare DashboardのD1のMetricsでDB別の行数・容量、BillingのBillab
 
 ### 上限エラーの扱い
 
-実際にD1から上限エラーが返った場合、APIはHTTP 503と固定のエラーコードを返し、画面には日本語の案内を表示する。
-日次読み取り・書き込み上限はそれぞれ `D1_DAILY_READ_LIMIT`、`D1_DAILY_WRITE_LIMIT` とし、次のUTC 0時までの秒数をRetry-Afterに付ける。
+実際にD1から上限エラーが返った場合、通常のAPIはHTTP 503と固定のエラーコードを返し、画面には日本語の案内を表示する。
+一括インポートはHTTP 200で確認済みの部分結果と項目別の上限コードを返し、後続の処理を中断する。
+日次読み取り・書き込み上限はそれぞれ `D1_DAILY_READ_LIMIT`、`D1_DAILY_WRITE_LIMIT` とし、通常の503応答には次のUTC 0時までの秒数をRetry-Afterに付ける。
 DB容量とアカウント容量の上限は `D1_DATABASE_STORAGE_LIMIT`、`D1_ACCOUNT_STORAGE_LIMIT` とし、日付変更で回復するという案内やRetry-Afterは付けない。
 既知のD1エラーだけを分類し、一般のSQLエラーや一時障害を上限超過と決めつけない。
+
+予期しないAPIエラーのログには `requestId` と固定の `category` を記録する。
+分類はD1・型・構文・範囲・タイムアウト・未分類に限定し、SQL、URL、例外メッセージや任意の例外名は出力しない。
 
 Collectorは上限エラーをフィードの取得失敗と混同せず、固定の `d1_quota_exceeded` イベントとコードを記録する。
 新たな停止状態をDBへ保存せず、既存のQueue再配信上限と次の定期実行によるジョブ修復を維持する。短い間隔での独自再試行は追加しない。
