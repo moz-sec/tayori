@@ -54,7 +54,7 @@
   - 成功: 200
 
 - Method / Path: GET /articles
-  - 入力・役割: scope, folderId, sourceId, boardId, cursor, limit
+  - 入力・役割: scope, folderId, sourceId, cursor, limit
   - 成功: 200
 
 - Method / Path: GET /articles/:id
@@ -68,30 +68,6 @@
 - Method / Path: POST /articles/read
   - 入力・役割: articleIds（最大50）、read
   - 成功: 200
-
-- Method / Path: GET /boards
-  - 入力・役割: ボード一覧
-  - 成功: 200
-
-- Method / Path: POST /boards
-  - 入力・役割: name
-  - 成功: 201
-
-- Method / Path: PATCH /boards/:id
-  - 入力・役割: name, sortOrder
-  - 成功: 200
-
-- Method / Path: DELETE /boards/:id
-  - 入力・役割: 所属解除
-  - 成功: 204
-
-- Method / Path: PUT /boards/:id/articles/:articleId
-  - 入力・役割: 冪等にボード保存
-  - 成功: 204
-
-- Method / Path: DELETE /boards/:id/articles/:articleId
-  - 入力・役割: ボード保存解除
-  - 成功: 204
 
 - Method / Path: GET /status
   - 入力・役割: 最終tick、active件数、失敗中件数
@@ -163,7 +139,7 @@ URL保存では即時取得せず、共通の収集設定に従って次回予�
 
 ## 購読先の取得状況
 
-`GET /sources` は各購読先に `unreadCount` を返す。未読数は `read_at IS NULL` かつ、期限内、またはお気に入り・あとで読む・ボード保存で保持される記事を対象とし、
+`GET /sources` は各購読先に `unreadCount` を返す。未読数は `read_at IS NULL` かつ、期限内、またはお気に入り・あとで読むで保持される記事を対象とし、
 記事一覧の未読フィルターと同じ条件で集計する。空の購読先は0件。全購読先の集計を1つのSQLで行い、フィード別の追加API呼び出しは行わない。
 
 `lastCheckedAt` は成功・失敗を含む直近の確認、`lastSuccessAt` は304（更新なし）を含む最終成功。未確認・未成功はnullになる。`errorCode` と `consecutiveFailures`

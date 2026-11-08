@@ -50,12 +50,6 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     saved: z.boolean(),
     version: z.number(),
   });
-  const BoardSchema = z.object({
-    id: z.string(),
-    name: z.string(),
-    sortOrder: z.number(),
-    articleCount: z.number().optional(),
-  });
   const dataResponse = <T extends z.ZodType>(schema: T) => z.object({ data: schema });
   const CollectionScheduleSchema = z.object({
     mode: z.enum(["interval", "daily"]),
@@ -164,18 +158,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
       example: "article-uuid",
     }),
   });
-  const boardArticleParams = z.object({
-    id: z.string().openapi({
-      param: { name: "id", in: "path" },
-      example: "board-uuid",
-    }),
-    articleId: z.string().openapi({
-      param: { name: "articleId", in: "path" },
-      example: "article-uuid",
-    }),
-  });
   const emptyResponse = { description: "成功しました。" };
-  const emptyBody = z.object({}).openapi("EmptyRequest");
   const nullableIdSchema = z.string().nullable();
 
   addOperation({
@@ -384,7 +367,6 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
         scope: z.enum(["all", "unread", "read-later", "starred"]).optional(),
         folderId: z.string().optional(),
         sourceId: z.string().optional(),
-        boardId: z.string().optional(),
         cursor: z.string().optional(),
         limit: z.coerce.number().int().min(1).max(50).optional(),
       }),
@@ -441,69 +423,6 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
         "更新件数です。",
       ),
     },
-  });
-  addOperation({
-    method: "get",
-    path: "/boards",
-    summary: "ボード一覧",
-    responses: {
-      200: jsonResponse(dataResponse(z.array(BoardSchema)), "ボード一覧です。"),
-    },
-  });
-  addOperation({
-    method: "post",
-    path: "/boards",
-    summary: "ボード作成",
-    request: { body: z.object({ name: z.string().min(1).max(100) }) },
-    responses: {
-      201: jsonResponse(dataResponse(BoardSchema), "作成したボードです。"),
-      409: jsonResponse(ErrorResponseSchema, "同名のボードがあります。"),
-    },
-  });
-  addOperation({
-    method: "patch",
-    path: "/boards/{id}",
-    summary: "ボード更新",
-    request: {
-      params: idParams,
-      body: z.object({
-        name: z.string().min(1).max(100).optional(),
-        sortOrder: z.number().int().min(0).max(100_000).optional(),
-      }),
-    },
-    responses: {
-      200: jsonResponse(dataResponse(BoardSchema), "更新後のボードです。"),
-      404: jsonResponse(ErrorResponseSchema, "ボードが見つかりません。"),
-      409: jsonResponse(ErrorResponseSchema, "同名のボードがあります。"),
-    },
-  });
-  addOperation({
-    method: "delete",
-    path: "/boards/{id}",
-    summary: "ボード削除",
-    request: { params: idParams },
-    responses: {
-      204: emptyResponse,
-      404: jsonResponse(ErrorResponseSchema, "ボードが見つかりません。"),
-    },
-  });
-  addOperation({
-    method: "put",
-    path: "/boards/{id}/articles/{articleId}",
-    summary: "記事をボードに保存",
-    description: "同じ記事の再登録は成功として扱います。",
-    request: { params: boardArticleParams, body: emptyBody },
-    responses: {
-      204: emptyResponse,
-      404: jsonResponse(ErrorResponseSchema, "ボードまたは記事が見つかりません。"),
-    },
-  });
-  addOperation({
-    method: "delete",
-    path: "/boards/{id}/articles/{articleId}",
-    summary: "ボードから記事を解除",
-    request: { params: boardArticleParams },
-    responses: { 204: emptyResponse },
   });
   addOperation({
     method: "get",
