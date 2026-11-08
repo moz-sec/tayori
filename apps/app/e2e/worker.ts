@@ -55,7 +55,7 @@ export default {
           "INSERT INTO folders (id, name, parent_id, sort_order) VALUES ('parent', '親フォルダ', NULL, 0), ('child', '子フォルダ', 'parent', 0), ('other', '移動先', NULL, 1)",
         ),
         env.DB.prepare(
-          "INSERT INTO sources (id, normalized_url, folder_id, title, next_fetch_at) VALUES ('seed-source', 'https://feed.example.test/seed.xml', 'child', 'テスト購読', ?)",
+          "INSERT INTO sources (id, normalized_url, folder_id, title, next_fetch_at) VALUES ('seed-source', 'https://tayori.invalid/seed.xml', 'child', 'テスト購読', ?)",
         ).bind(now + 3600),
       ]);
       const statements: D1PreparedStatement[] = [];
@@ -72,7 +72,7 @@ export default {
           ).bind(
             id,
             `テスト記事 ${String(index).padStart(2, "0")}`,
-            `https://feed.example.test/articles/${index}`,
+            `https://tayori.invalid/articles/${index}`,
             now - index,
             now + 604800,
           ),
