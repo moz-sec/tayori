@@ -12,6 +12,7 @@ import { nextCollectionAt, loadCollectionSchedule } from "@tayori/shared/collect
 import { collectionSettingsApi } from "./collection-settings-api";
 import { authenticate } from "./auth";
 import { registerApiOperations } from "./api-docs";
+import { apiErrorCategory } from "./api-error-category";
 
 type AppEnv = {
   Bindings: Env;
@@ -111,7 +112,7 @@ api.onError((error, c) => {
     return c.json({ error: { code: error.code } }, error.status);
   }
   const requestId = crypto.randomUUID();
-  console.error({ event: "api_error", requestId });
+  console.error({ event: "api_error", requestId, category: apiErrorCategory(error) });
   return c.json({ error: { code: "INTERNAL_ERROR", requestId } }, 500);
 });
 
@@ -297,25 +298,19 @@ api.post("/sources/import", async (c) => {
     source?: ReturnType<typeof sourceDto>;
     code?: string;
   }> = [];
-  for (const input of body.sources) {
+  for (let index = 0; index < body.sources.length; index++) {
     try {
-      const created = await createSource(c.env.DB, input);
-      await enqueueInitialFetch(c.env.DB, c.env.JOBS, created.id, created.generation);
-      results.push({ status: "added", source: sourceDto(created) });
+      results.push(await importSource(c.env.DB, c.env.JOBS, body.sources[index]));
     } catch (error) {
-      if (classifyD1QuotaError(error)) throw error;
-      if (error instanceof ApiError && error.code === "SOURCE_ALREADY_EXISTS") {
-        const url = normalizeFeedUrl(String(asRecord(input).url ?? ""));
-        const existing = await c.env.DB.prepare("SELECT * FROM sources WHERE normalized_url = ?")
-          .bind(url)
-          .first<SourceRow>();
-        results.push({ status: "existing", ...(existing ? { source: sourceDto(existing) } : {}) });
-      } else {
-        results.push({
-          status: "error",
-          code: error instanceof ApiError ? error.code : "INVALID_SOURCE",
-        });
+      const quota = classifyD1QuotaError(error);
+      if (quota) {
+        console.error({ event: "d1_quota_exceeded", code: quota });
+        for (let pending = index; pending < body.sources.length; pending++)
+          results.push({ status: "error", code: quota });
+        break;
       }
+      if (!(error instanceof ApiError)) throw error;
+      results.push({ status: "error", code: error.code });
     }
   }
   return c.json({ data: results });
@@ -793,6 +788,23 @@ async function createSource(db: D1Database, input: unknown): Promise<SourceRow> 
   }
   const result = await db.prepare("SELECT * FROM sources WHERE id = ?").bind(id).first<SourceRow>();
   return result!;
+}
+
+/** Resolves one import item, allowing quota failures from duplicate lookup to reach the batch. */
+async function importSource(db: D1Database, jobs: Queue<QueueMessage>, input: unknown) {
+  try {
+    const created = await createSource(db, input);
+    await enqueueInitialFetch(db, jobs, created.id, created.generation);
+    return { status: "added" as const, source: sourceDto(created) };
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== "SOURCE_ALREADY_EXISTS") throw error;
+    const url = normalizeFeedUrl(String(asRecord(input).url ?? ""));
+    const existing = await db
+      .prepare("SELECT * FROM sources WHERE normalized_url = ?")
+      .bind(url)
+      .first<SourceRow>();
+    return { status: "existing" as const, ...(existing ? { source: sourceDto(existing) } : {}) };
+  }
 }
 
 /** Uses identical URL validation and normalization for registration and correction. */

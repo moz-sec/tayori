@@ -4,6 +4,16 @@ export type D1QuotaCode =
   | "D1_DATABASE_STORAGE_LIMIT"
   | "D1_ACCOUNT_STORAGE_LIMIT";
 
+/** Identifies the fixed public codes used in item-level import failures. */
+export function isD1QuotaCode(code: unknown): code is D1QuotaCode {
+  return (
+    code === "D1_DAILY_READ_LIMIT" ||
+    code === "D1_DAILY_WRITE_LIMIT" ||
+    code === "D1_DATABASE_STORAGE_LIMIT" ||
+    code === "D1_ACCOUNT_STORAGE_LIMIT"
+  );
+}
+
 /** Recognizes documented D1 quota errors, including wrapped causes, without exposing their text. */
 export function classifyD1QuotaError(error: unknown): D1QuotaCode | null {
   const seen = new Set<Error>();
