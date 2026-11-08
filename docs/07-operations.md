@@ -87,13 +87,23 @@ ETag非対応サイトで全記事を毎回UPDATEすると、この見積もり�
 
 ## 6. バックアップと復元
 
-- D1 Time Travel 7日を短期事故復旧に使う。記事の7日保持とは別機能。
-- Macに毎日03:00のSQL exportを設定し、成功した新しい7世代を保持する。マイグレーション前にもバックアップする。
-- SQLには個人情報が含まれるため非公開のディレクトリに保存し、外部共有しない。
-- Macでの日次実行と監視はまだ設定されていない。実環境での取得と復元も未検証である。
-- 別DBへの復元、Queueの隔離、データ検証の手順は[バックアップと復元](17-backup-restore.md)を参照する。
+D1 Time Travel は自動で有効になり、Workers Free では過去 7 日間の任意の分に復元できる。記事の 7 日保持とは別の機能である。
+Workers Paid では 30 日間保持される。詳細は [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/) と
+[プラン別の制限](https://developers.cloudflare.com/d1/platform/limits/)を参照する。
 
-通常時の目標復旧時点は最大24時間前だが、失敗や休止が続けば損失期間は長くなる。復旧時間は保証しない。
+障害や誤操作が発生した場合は、履歴の保持期間内で正常だった時点を特定し、Time Travel で復元する。復元は対象 DB を上書きし、
+進行中のクエリとトランザクションを中断する。復元後は指定時点以降の変更が失われる。実 D1 での復元演習は未実施であり、復旧時間は未測定である。
+
+1. アプリへの書き込み、定期収集、Queue の producer と consumer を停止し、処理中の実行が終了したことを確認する。
+   復元後に旧 Queue の fetch と tick のメッセージが流れないよう隔離する。
+2. 対象 DB と復元時点を確認し、[Time Travel の復元手順](https://developers.cloudflare.com/d1/reference/time-travel/#restore-a-database)に従って復元する。
+   復元後に表示される復元前の bookmark を記録する。
+3. 収集と Queue を停止したまま `scripts/restore-d1-safety.sql` を対象 DB に適用する。復元された未完了ジョブを失敗扱いにし、購読先の generation を更新する。
+   復元時点以降のジョブは DB に含まれないため、generation の更新だけに頼らず旧 Queue の隔離を維持する。
+4. `PRAGMA integrity_check` と `PRAGMA foreign_key_check`、購読先や記事の件数、既読・保存状態、必要な migration を確認する。旧 Queue を隔離したまま、アプリと収集を段階的に再開する。復元時点と検証結果を記録する。
+
+7 日を超える長期保管が必要になった場合は、D1 の SQL を非公開の R2 バケットに定期退避する方法を検討する。[Cloudflare の Workflows による実装例](https://developers.cloudflare.com/workflows/examples/backup-d1/)を参照し、
+保持期間、アクセス制御、監視、費用、復元演習を検討する。R2 への自動退避は実装・設定していない。
 
 ## 7. 費用の境界
 

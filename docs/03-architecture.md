@@ -25,7 +25,7 @@ tick / fetch"]
     end
     F -->|"条件付きGET"| E["外部RSS / Atom"]
     O["本人の運用CLI"] -. "SQL export / restore" .-> D
-    O --> B["手元のバックアップ"]
+    O --> B["D1 Time Travel"]
 ```
 
 | リソース                | 責務                                                           |
