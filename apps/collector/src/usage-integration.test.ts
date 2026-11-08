@@ -81,9 +81,10 @@ describe("usage control integration", () => {
     db.sqlite.close();
   });
 
-  it("enqueues a tick even when usage and monitoring requests fail", async () => {
+  it("enqueues a tick when usage refresh fails and logs a safe snapshot", async () => {
     vi.spyOn(Date, "now").mockReturnValue(now);
     vi.spyOn(console, "error").mockImplementation(() => {});
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
     const fetcher = vi.fn().mockRejectedValue(new Error("offline"));
     vi.stubGlobal("fetch", fetcher);
     const db = sqliteD1();
@@ -105,10 +106,17 @@ describe("usage control integration", () => {
       D1_ROWS_WRITTEN_LIMIT: "100",
       D1_WARNING_RATIO: "0.8",
       D1_MAX_AGE_SECONDS: "3600",
-      MONITOR_WEBHOOK_URL: "https://example.com/hook",
     } as unknown as Env;
     await worker.scheduled({ scheduledTime: now, cron: "0 * * * *", noRetry() {} }, env);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(logs).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "collection_heartbeat", scheduledAt: now }),
+    );
+    expect(logs).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "collection_snapshot", outcome: "success" }),
+    );
+    expect(logs).toHaveBeenCalledWith({ event: "tick_dispatch", outcome: "success" });
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("example.com");
     expect(send).toHaveBeenCalledWith({ schemaVersion: 1, type: "tick", scheduledAt: now });
     db.sqlite.close();
   });

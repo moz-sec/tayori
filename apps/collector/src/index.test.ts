@@ -258,7 +258,7 @@ describe("hourly RSS collection", () => {
     vi.stubGlobal("fetch", fetcher);
     await worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env);
     expect(queued).toEqual([{ schemaVersion: 1, type: "tick", scheduledAt: ROUND }]);
-    expect(database.state.queries).toBe(1);
+    expect(database.state.queries).toBe(3);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -590,4 +590,83 @@ describe("hourly RSS collection", () => {
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("structured operational logs", () => {
+  it("keeps tick dispatch working when snapshot reading fails and logs no exception details", async () => {
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    database.state.beforeQuery = (sql) => {
+      if (sql.includes("AS lastTick")) throw new Error("private secret");
+    };
+    await worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env);
+    expect(errors).toHaveBeenCalledWith({
+      event: "collection_snapshot",
+      outcome: "failed",
+      errorCode: "snapshot_unavailable",
+    });
+    expect(logs).toHaveBeenCalledWith({ event: "tick_dispatch", outcome: "success" });
+    expect(queued).toHaveLength(1);
+    expect(JSON.stringify([...logs.mock.calls, ...errors.mock.calls])).not.toContain(
+      "private secret",
+    );
+  });
+
+  it("logs tick delivery failure without swallowing it", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(env.JOBS.send).mockRejectedValueOnce(new Error("private queue detail"));
+    await expect(
+      worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env),
+    ).rejects.toThrow();
+    expect(errors).toHaveBeenCalledWith({
+      event: "tick_dispatch",
+      outcome: "failed",
+      errorCode: "queue_send_failed",
+    });
+    expect(JSON.stringify(errors.mock.calls)).not.toContain("private queue detail");
+  });
+
+  it.each([
+    [200, "success"],
+    [304, "not_modified"],
+    [503, "failed"],
+  ] as const)("records feed result %i without private fields", async (status, outcome) => {
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    source("private-source");
+    database.sqlite
+      .prepare(
+        "INSERT INTO fetch_jobs(id,source_id,generation,status,created_at) VALUES ('private-job','private-source',1,'sent',?)",
+      )
+      .run(now / 1000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(status === 200 ? feed(0) : null, { status })),
+    );
+    await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
+    expect(logs).toHaveBeenCalledWith(expect.objectContaining({ event: "fetch_result", outcome }));
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("private");
+    if (status === 503)
+      expect(logs).toHaveBeenCalledWith({
+        event: "fetch_result",
+        outcome: "failed",
+        errorCode: "http_503",
+      });
+  });
+});
+
+it("logs stale and budget-stopped fetch jobs without identifying data", async () => {
+  const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+  await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
+  expect(logs).toHaveBeenCalledWith({ event: "fetch_result", outcome: "stale" });
+  database.sqlite
+    .prepare("INSERT INTO app_state(key,value) VALUES ('d1_usage_config',?)")
+    .run(JSON.stringify({ enabled: true, limits: null }));
+  await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
+  expect(logs).toHaveBeenCalledWith({
+    event: "fetch_result",
+    outcome: "stopped",
+    errorCode: "d1_budget_stopped",
+  });
+  expect(JSON.stringify(logs.mock.calls)).not.toContain("private-job");
 });

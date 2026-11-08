@@ -27,10 +27,6 @@ jobs:
       TAYORI_PREVIEW_D1_DATABASE_ID: ${{ vars.TAYORI_PREVIEW_D1_DATABASE_ID }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       TAYORI_D1_USAGE_ENABLED: ${{ vars.TAYORI_D1_USAGE_ENABLED || 'false' }}
-      TAYORI_MONITORING_ENABLED: ${{ vars.TAYORI_MONITORING_ENABLED || 'false' }}
-      MONITOR_TICK_STALE_SECONDS: ${{ vars.MONITOR_TICK_STALE_SECONDS || '10800' }}
-      MONITOR_BACKLOG_STALE_SECONDS: ${{ vars.MONITOR_BACKLOG_STALE_SECONDS || '10800' }}
-      MONITOR_FAILURE_THRESHOLD: ${{ vars.MONITOR_FAILURE_THRESHOLD || '3' }}
       D1_STORAGE_LIMIT_BYTES: ${{ vars.D1_STORAGE_LIMIT_BYTES || '419430400' }}
       D1_ROWS_READ_LIMIT: ${{ vars.D1_ROWS_READ_LIMIT || '3000000' }}
       D1_ROWS_WRITTEN_LIMIT: ${{ vars.D1_ROWS_WRITTEN_LIMIT || '60000' }}
@@ -58,13 +54,6 @@ jobs:
         run: |
           if [[ "$TAYORI_D1_USAGE_ENABLED" == 'true' && -z "$D1_ANALYTICS_TOKEN" ]]; then
             echo 'Set D1_ANALYTICS_TOKEN for D1 usage monitoring'; exit 1
-          fi
-      - name: Validate collection monitoring secret
-        env:
-          MONITOR_WEBHOOK_URL: ${{ secrets.MONITOR_WEBHOOK_URL }}
-        run: |
-          if [[ "$TAYORI_MONITORING_ENABLED" == 'true' && -z "$MONITOR_WEBHOOK_URL" ]]; then
-            echo 'Set MONITOR_WEBHOOK_URL for collection monitoring'; exit 1
           fi
       - run: npm ci
       # npm's configured registry mirror omits Rolldown's Linux optional binding from package-lock.json.
@@ -95,19 +84,16 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           D1_ANALYTICS_TOKEN: ${{ secrets.D1_ANALYTICS_TOKEN }}
-          MONITOR_WEBHOOK_URL: ${{ secrets.MONITOR_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          if [[ "$TAYORI_D1_USAGE_ENABLED" == 'true' || "$TAYORI_MONITORING_ENABLED" == 'true' ]]; then
+          if [[ "$TAYORI_D1_USAGE_ENABLED" == 'true' ]]; then
             TAYORI_COLLECTOR_SECRETS_FILE="$RUNNER_TEMP/tayori-collector-secrets.json"
             export TAYORI_COLLECTOR_SECRETS_FILE
             trap 'rm -f "$TAYORI_COLLECTOR_SECRETS_FILE"' EXIT
             node --input-type=module -e '
               import { writeFileSync } from "node:fs";
-              const secrets = {};
-              if (process.env.TAYORI_D1_USAGE_ENABLED === "true") secrets.D1_ANALYTICS_TOKEN = process.env.D1_ANALYTICS_TOKEN;
-              if (process.env.TAYORI_MONITORING_ENABLED === "true") secrets.MONITOR_WEBHOOK_URL = process.env.MONITOR_WEBHOOK_URL;
-              writeFileSync(process.env.TAYORI_COLLECTOR_SECRETS_FILE, JSON.stringify(secrets), { mode: 0o600 });
+              writeFileSync(process.env.TAYORI_COLLECTOR_SECRETS_FILE,
+                JSON.stringify({ D1_ANALYTICS_TOKEN: process.env.D1_ANALYTICS_TOKEN }), { mode: 0o600 });
             '
             npm exec -- cf deploy --prebuilt --mode preview --secrets-file "$TAYORI_COLLECTOR_SECRETS_FILE"
           else

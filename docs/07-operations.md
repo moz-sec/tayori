@@ -80,13 +80,90 @@ Cloudflareの実環境では未検証であり、無料枠でDBが拒否され�
 
 ## 5. 日常監視
 
-収集成功率、最終成功、最終tick、Queue backlog/age/retry、CPU超過、D1 rows read/written、DB容量を確認。ログにはrequest/job/sourceのID、HTTPステータス、処理時間、
-エラー種別だけを残す。全文ログ・外部ログ基盤は初期に追加しない。
+収集の監視はCloudflare標準のObservabilityとAlertsを優先する。Collectorは構造化ログと集約値を出力し、条件評価と通知先の管理はCloudflare側で行う。
+WorkerにはWebhook送信、通知の再試行、通知状態を保存するD1への書き込みを持たせない。追加の監視WorkerやAnalytics Engineも導入しない。
 
-毎時の収集監視はtickの遅延、未完了ジョブの滞留、連続失敗と予算停止を確認し、発生と回復を通知する。
-通知は初期状態では無効であり、有効化とWebhookの設定が必要である。
-同じWorkerとD1に依存するため、Cron全体やD1の停止を検知するには独立した外部監視が必要になる。
-設定と制約は[収集監視と通知](16-monitoring.md)を参照する。実際の通知先とCloudflare環境での動作は未検証である。
+### ログと状態API
+
+Collectorの `observability` とLogs・Tracesを有効にし、Logsのサンプリング率を1にする設定をプレビュー・本番で維持する。
+`console.log` / `console.error` にJSONオブジェクトを渡し、以下のイベントを記録する。
+
+| イベント               | 内容                                     |
+| ---------------------- | ---------------------------------------- |
+| `collection_heartbeat` | Cronの起動と予定時刻。DB照会前に記録     |
+| `tick_dispatch`        | Queueへのtick投入の成功・失敗            |
+| `collection_snapshot`  | 保存済みの集計値。取得失敗時は固定エラー |
+| `fetch_result`         | RSS取得の成功・304・失敗・失効・停止     |
+
+集計には `lastTick`、`lastSuccess`、`failingSources`、`maxConsecutiveFailures`、`pendingJobs`、`oldestPendingAgeSeconds`、
+`queueBudgetStopped`、`d1UsageState`、`d1UsageReason` を含める。時刻はUnix秒、滞留時間は秒とする。
+未取得の時刻・滞留時間はnullを保持し、0や正常な状態に置き換えない。
+`collection_heartbeat` の `scheduledAt` は予定時刻のUnixミリ秒である。
+`collection_snapshot` は成功時に `outcome=success`、取得失敗時に `outcome=failed` と固定の `errorCode` を記録する。
+`fetch_result` の `outcome` は `success`、`not_modified`、`failed`、`stale`、`stopped` で、失敗理由は固定の `errorCode` で表す。
+集計は現在の毎時tickが処理される前の保存済み状態を含み、現在の収集完了を表すものではない。集計の取得失敗だけでtick投入を止めない。
+フィードのURL、タイトル、本文、認証情報、記事・購読先・ジョブの識別子、例外メッセージはこれらのログへ含めない。
+
+`GET /status` の最終成功・最古の未完了ジョブ・連続失敗・Queue予算停止・D1利用量の指標は引き続き確認できる。
+RSSの取得失敗をアプリケーションが処理して正常終了した場合、Workerの例外監視だけでは分からないため、`fetch_result` と集計値も監視する。
+
+### Cloudflare側の設定
+
+1. 対象アカウントのWorkers Logsで `tayori-collector` と `tayori-collector-preview` のログを別々に確認する。
+2. **Observability → Alerts → Monitors** でThreshold監視を作成する。最初はEmailを通知先にし、必要ならCloudflareのDestinationsにWebhookを登録する。通知先のURLをWorkerやGitHubのシークレットへ設定する必要はない。
+3. 使用するデータセット・列・カスタム属性の実名と型をSQL APIのintrospectionまたは画面で確認する。契約・権限で利用可否が異なるため、一覧に存在するだけで利用可能とは判断しない。
+4. アカウントとWorker名で対象を絞り、単一の数値列 `value` を返すクエリを作る。プレビューで通常時・異常時の値を確認してから有効にする。
+5. 評価間隔とRepeat notification intervalを指定する。後者の既定値は1時間なので、同じ障害を頻繁に通知しないよう、例えば24時間へ変更する。回復時の評価と通知の動作も試験する。
+
+監視条件の初期案は次のとおりとする。閾値はWorkerの環境変数ではなくMonitor側で設定し、実測から調整する。
+
+| 対象                   | 初期条件・確認方法                                           |
+| ---------------------- | ------------------------------------------------------------ |
+| Workerの実行失敗       | Workers Issues・実行結果・利用可能な通知を確認               |
+| 取得の連続失敗         | `maxConsecutiveFailures >= 3`                                |
+| ジョブの滞留           | `pendingJobs > 0` かつ `oldestPendingAgeSeconds >= 10800`    |
+| 予算による停止         | `queueBudgetStopped=true` または `d1UsageState=stopped`      |
+| 集計の取得失敗         | `collection_snapshot` かつ `outcome=failed` が評価窓内に存在 |
+| Cronの未起動・ログ欠落 | 過去3時間のheartbeat件数が1未満。ゼロ件評価の実証が前提      |
+
+取得の連続失敗・滞留・予算停止の条件には成功した集計値を使う。D1の停止理由は `d1UsageReason`、取得エラーの種別は `fetch_result` で確認する。
+Workerの例外やCron・Queueの実行失敗は、利用可能なPlatform Notificationsまたは対応データセットのMonitorを設定する。
+
+SQL例は、対象アカウントで `logs.workersLogs` と `attributes['event']` が利用できることを確認した後に使う。
+属性名は実際のログとintrospectionの結果に合わせ、`<ACCOUNT_TAG>` は対象アカウントIDへ置き換える。クエリの末尾にセミコロンを付けない。
+
+```sql
+SELECT COUNT(*) AS value
+FROM logs.workersLogs
+WHERE accountTag = '<ACCOUNT_TAG>'
+  AND scriptName = 'tayori-collector'
+  AND timestamp >= NOW() - INTERVAL '3' HOUR
+  AND attributes['event'] = 'collection_heartbeat'
+```
+
+この例はManual time-rangeで評価し、`value < 1` を条件とする。プレビュー環境ではWorker名を `tayori-collector-preview` に置き換える。
+Monitorsは「行なし」のクエリ結果では通知しない。`COUNT(*)` が対象0件でも数値0を返し、実際に通知されることを、未起動の検知とは別に試験する。
+利用可能なデータセットがない場合やゼロ件評価を実証できない場合、Cron未起動の検知は未対応として扱い、必要なら独立した外部監視を別途検討する。
+ログの保存上限、サンプリング、取り込み遅延、権限エラーでも信号は欠落し得るため、ログ欠落をCron停止と断定しない。
+
+集計値は毎時の観測である。評価窓に過去の異常値が残っていれば正常復帰後も条件に該当するため、窓の長さと通知・回復までの遅延を確認する。
+日次収集の正常な待機や購読先0件を、最終成功時刻が古いという理由だけで障害にしない。Queue自体の実測滞留とD1の未完了ジョブの滞留は別の指標である。
+
+### 利用枠と運用確認
+
+2026-11-08時点のWorkers Logs Freeは1日20万イベント・3日保持である。アカウント内の他のWorkerと合算し、標準の実行ログとカスタムログを両方数える。
+2026-12-01からはObservabilityの新料金へ移行予定で、Freeは1日0.5GBの取り込みと7日保持となる。現在の上限と将来の上限を混同しない。
+集計は毎時2回のD1照会を行い、通常は1日48回となる。読み取り行数は対象件数とSQLの集計に依存するため実測する。
+監視自体のD1照会、ログ量、利用可能な通知・データセットを確認し、有料機能の追加を前提にしない。
+
+導入時は通常取得・304・連続失敗・滞留・予算停止・回復をテスト用データで確認し、ログの属性、Monitorの評価、通知到達を照合する。
+通知先のテスト送信に加えて条件を実際に成立させた通知と再通知間隔を確認する。Cron欠落と集計取得失敗も別々に試験する。
+原因調査はWorkerの実行結果、Queue、D1の状態APIと保存済み状態から行い、通知を止めるためだけに保存記事を削除しない。
+実環境のデータセット照会、Monitor作成、通知送信、配備は未実施である。GitHub Actionsも停止中のため、これらの実証が済むまで通知が運用開始済みとは扱わない。
+
+公式資料: [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)、
+[Monitors](https://developers.cloudflare.com/notifications/monitors/)、[SQL API datasets](https://developers.cloudflare.com/analytics/sql-api/datasets/)、
+[Alerts設定](https://developers.cloudflare.com/notifications/get-started/)、[Observability料金](https://developers.cloudflare.com/observability/pricing/)。
 
 サイドバーの各フィードに未読数を表示し、「取得状況」を開くと停止状態、最終確認、最終成功、次回対象時刻、連続失敗数とエラーの説明・コードを確認できる。フォルダ内と未分類の両方に表示する。
 更新ボタンや記事状態の変更後にD1の保存済み情報を再取得する。初回登録直後は「初回取得の確認待ち」となり、RSS取得完了後の情報は画面を更新して確認する。全体の「収集スケジューラー最終実行」は個別フィードの取得完了ではない。
