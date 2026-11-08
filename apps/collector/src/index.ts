@@ -8,6 +8,7 @@ import {
   MAX_FEED_RESPONSE_BYTES,
   MAX_QUEUE_OPERATIONS_PER_DAY,
 } from "@tayori/shared";
+import { readMonitoringSnapshot } from "./monitoring";
 import { FeedParseError, parseFeed, sha256, isSafeFeedTarget } from "./feed";
 
 const JOB_LEASE_SECONDS = 300;
@@ -39,12 +40,32 @@ interface JobRow {
 
 export default {
   async scheduled(controller, env): Promise<void> {
+    console.log({ event: "collection_heartbeat", scheduledAt: controller.scheduledTime });
+    const now = Math.floor(Date.now() / 1000);
+    try {
+      const snapshot = await readMonitoringSnapshot(env.DB, now);
+      console.log({ event: "collection_snapshot", outcome: "success", ...snapshot });
+    } catch (error) {
+      const code = classifyD1QuotaError(error);
+      if (code) console.error({ event: "d1_quota_exceeded", code });
+      console.error({
+        event: "collection_snapshot",
+        outcome: "failed",
+        errorCode: "snapshot_unavailable",
+      });
+    }
     const message: QueueMessage = {
       schemaVersion: 1,
       type: "tick",
       scheduledAt: controller.scheduledTime,
     };
-    await env.JOBS.send(message);
+    try {
+      await env.JOBS.send(message);
+      console.log({ event: "tick_dispatch", outcome: "success" });
+    } catch (error) {
+      console.error({ event: "tick_dispatch", outcome: "failed", errorCode: "queue_send_failed" });
+      throw error;
+    }
   },
 
   async queue(batch, env): Promise<void> {
@@ -57,7 +78,16 @@ export default {
         if (value.type === "tick") {
           await processTick(env, value.scheduledAt, value.cursor);
         } else {
-          await processFetch(env, value.jobId, message.attempts > 1);
+          try {
+            await processFetch(env, value.jobId, message.attempts > 1);
+          } catch (error) {
+            console.error({
+              event: "fetch_result",
+              outcome: "failed",
+              errorCode: classifyD1QuotaError(error) ?? "unexpected",
+            });
+            throw error;
+          }
         }
       } catch (error) {
         const code = classifyD1QuotaError(error);
@@ -185,13 +215,17 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
   )
     .bind(now + JOB_LEASE_SECONDS, jobId, now, Number(allowRunningRetry))
     .first<JobRow>();
-  if (!job) return;
+  if (!job) {
+    console.log({ event: "fetch_result", outcome: "stale" });
+    return;
+  }
 
   const source = await env.DB.prepare("SELECT * FROM sources WHERE id = ?")
     .bind(job.source_id)
     .first<SourceRow>();
   if (!source || source.status !== "active" || source.generation !== job.generation) {
     await completeJob(env.DB, job.id, "done", now);
+    console.log({ event: "fetch_result", outcome: "stale" });
     return;
   }
   const { schedule, storedValue } = await loadCollectionSchedule(env.DB);
@@ -212,6 +246,7 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
           "UPDATE fetch_jobs SET status = 'done', lease_until = NULL, completed_at = ? WHERE id = ?",
         ).bind(now, job.id),
       ]);
+      console.log({ event: "fetch_result", outcome: "not_modified" });
       return;
     }
 
@@ -256,6 +291,7 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
         "UPDATE fetch_jobs SET status = 'done', lease_until = NULL, completed_at = ? WHERE id = ?",
       ).bind(now, job.id),
     ]);
+    console.log({ event: "fetch_result", outcome: "success" });
   } catch (error) {
     if (classifyD1QuotaError(error)) throw error;
     if (
@@ -281,6 +317,7 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
           "UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ? WHERE id = ?",
         ).bind(now, job.id),
       ]);
+      console.log({ event: "fetch_result", outcome: "failed", errorCode: code });
       return;
     }
     throw error;

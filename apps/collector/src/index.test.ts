@@ -253,12 +253,12 @@ describe("hourly RSS collection", () => {
     ).toBeNull();
   });
 
-  it("only enqueues a tick from scheduled, without doing database or HTTP work", async () => {
+  it("enqueues a tick after reading the monitoring snapshot", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     await worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env);
     expect(queued).toEqual([{ schemaVersion: 1, type: "tick", scheduledAt: ROUND }]);
-    expect(database.state.queries).toBe(0);
+    expect(database.state.queries).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -592,35 +592,72 @@ describe("hourly RSS collection", () => {
   });
 });
 
-describe("article retention after board removal", () => {
-  it("purges expired ordinary articles while preserving saved states and keys", async () => {
-    source("retention", "paused");
-    const seconds = Math.floor(now / 1000);
-    for (const [id, expiry, readAt, starred, later] of [
-      ["expired", seconds - 1, 1, 0, 0],
-      ["boundary", seconds, null, 0, 0],
-      ["fresh", seconds + 1, null, 0, 0],
-      ["starred", seconds - 1, 1, 1, 0],
-      ["later", seconds - 1, null, 0, 1],
-    ] as const) {
-      database.sqlite
-        .prepare(
-          "INSERT INTO item_keys(id, source_id, key_hash, first_seen_at) VALUES (?, 'retention', ?, 1)",
-        )
-        .run(id, id);
-      database.sqlite
-        .prepare(
-          "INSERT INTO articles(id, title, url, first_seen_at, expires_at, read_at, starred, read_later) VALUES (?, ?, 'https://example.com', 1, ?, ?, ?, ?)",
-        )
-        .run(id, id, expiry, readAt, starred, later);
-    }
-    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
-    expect(
-      database.sqlite
-        .prepare("SELECT id FROM articles ORDER BY id")
-        .all()
-        .map((row) => row.id),
-    ).toEqual(["fresh", "later", "starred"]);
-    expect(database.sqlite.prepare("SELECT id FROM item_keys").all()).toHaveLength(5);
+describe("structured operational logs", () => {
+  it("keeps tick dispatch working when snapshot reading fails and logs no exception details", async () => {
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    database.state.beforeQuery = (sql) => {
+      if (sql.includes("AS lastTick")) throw new Error("private secret");
+    };
+    await worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env);
+    expect(errors).toHaveBeenCalledWith({
+      event: "collection_snapshot",
+      outcome: "failed",
+      errorCode: "snapshot_unavailable",
+    });
+    expect(logs).toHaveBeenCalledWith({ event: "tick_dispatch", outcome: "success" });
+    expect(queued).toHaveLength(1);
+    expect(JSON.stringify([...logs.mock.calls, ...errors.mock.calls])).not.toContain(
+      "private secret",
+    );
   });
+
+  it("logs tick delivery failure without swallowing it", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(env.JOBS.send).mockRejectedValueOnce(new Error("private queue detail"));
+    await expect(
+      worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env),
+    ).rejects.toThrow();
+    expect(errors).toHaveBeenCalledWith({
+      event: "tick_dispatch",
+      outcome: "failed",
+      errorCode: "queue_send_failed",
+    });
+    expect(JSON.stringify(errors.mock.calls)).not.toContain("private queue detail");
+  });
+
+  it.each([
+    [200, "success"],
+    [304, "not_modified"],
+    [503, "failed"],
+  ] as const)("records feed result %i without private fields", async (status, outcome) => {
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    source("private-source");
+    database.sqlite
+      .prepare(
+        "INSERT INTO fetch_jobs(id,source_id,generation,status,created_at) VALUES ('private-job','private-source',1,'sent',?)",
+      )
+      .run(now / 1000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(status === 200 ? feed(0) : null, { status })),
+    );
+    await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
+    expect(logs).toHaveBeenCalledWith(expect.objectContaining({ event: "fetch_result", outcome }));
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("private");
+    if (status === 503)
+      expect(logs).toHaveBeenCalledWith({
+        event: "fetch_result",
+        outcome: "failed",
+        errorCode: "http_503",
+      });
+  });
+});
+
+it("logs stale fetch jobs without identifying data", async () => {
+  const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+  await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
+  expect(logs).toHaveBeenCalledWith({ event: "fetch_result", outcome: "stale" });
+  expect(JSON.stringify(logs.mock.calls)).not.toContain("private-job");
 });

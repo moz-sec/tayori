@@ -76,6 +76,13 @@
 `scope` には `all`、`unread`、`read-later`、`starred` を指定します。フォルダを指定すると、その子孫にある購読先の記事も対象になります。`cursor` の順序キーは検証し、SQL
 に直接連結しません。
 
+`GET /status` の収集状態には次の値も含まれる。日時は ISO 8601 形式である。
+
+- `lastSuccessAt`: 有効な購読先の最新の成功日時。未成功なら null。
+- `oldestPendingAt`: pending、sent、running の最も古いジョブの作成日時。対象がなければ null。
+- `maxConsecutiveFailures`: 有効な購読先の連続失敗数の最大値。対象がなければ 0。
+- `queueBudgetStopped`: 当日 UTC の Queue 予約数が次の4操作を予約できない水準なら true。
+
 `POST /sources/import` は、D1上限に達してもHTTP 200で確認済みの追加・既存の結果を保持する。
 同じバッチ内で処理を完了できなかった項目と後続の未処理項目は、`status=error` とD1の上限コードで返し、そのバッチの処理を止める。
 画面は上限コードを検出すると後続バッチを送らず、別バッチの未処理項目を保持して中断を案内する。

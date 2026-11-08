@@ -1,6 +1,10 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
-import { DEFAULT_RETENTION_DAYS, normalizeFeedUrl } from "@tayori/shared";
+import {
+  DEFAULT_RETENTION_DAYS,
+  MAX_QUEUE_OPERATIONS_PER_DAY,
+  normalizeFeedUrl,
+} from "@tayori/shared";
 import type { QueueMessage } from "@tayori/shared";
 import { classifyD1QuotaError, secondsUntilNextUtcDay } from "@tayori/shared/d1-errors";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
@@ -689,7 +693,7 @@ api.delete("/boards/:id/articles/:articleId", async (c) => {
 });
 
 api.get("/status", async (c) => {
-  const [tick, failures, active] = await Promise.all([
+  const [tick, failures, active, operations] = await Promise.all([
     c.env.DB.prepare("SELECT value FROM app_state WHERE key = 'last_tick'").first<{
       value: string;
     }>(),
@@ -699,12 +703,34 @@ api.get("/status", async (c) => {
     c.env.DB.prepare("SELECT COUNT(*) AS count FROM sources WHERE status = 'active'").first<{
       count: number;
     }>(),
+    c.env.DB.prepare(`SELECT
+      (SELECT MAX(last_success_at) FROM sources WHERE status = 'active') AS last_success,
+      (SELECT MAX(consecutive_failures) FROM sources WHERE status = 'active') AS max_failures,
+      (SELECT MIN(created_at) FROM fetch_jobs WHERE status IN ('pending','sent','running')) AS oldest_job,
+      (SELECT reserved_queue_ops FROM daily_usage WHERE day_utc = ?) AS reserved_queue_ops`)
+      .bind(new Date().toISOString().slice(0, 10))
+      .first<{
+        last_success: number | null;
+        max_failures: number | null;
+        oldest_job: number | null;
+        reserved_queue_ops: number | null;
+      }>(),
   ]);
   return c.json({
     data: {
       lastTickAt: tick ? new Date(Number(tick.value) * 1000).toISOString() : null,
       activeSources: active?.count ?? 0,
       failingSources: failures?.count ?? 0,
+      lastSuccessAt:
+        operations?.last_success == null
+          ? null
+          : new Date(operations.last_success * 1000).toISOString(),
+      oldestPendingAt:
+        operations?.oldest_job == null
+          ? null
+          : new Date(operations.oldest_job * 1000).toISOString(),
+      maxConsecutiveFailures: operations?.max_failures ?? 0,
+      queueBudgetStopped: (operations?.reserved_queue_ops ?? 0) > MAX_QUEUE_OPERATIONS_PER_DAY - 4,
     },
   });
 });
