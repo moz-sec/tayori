@@ -1,5 +1,6 @@
 import { request } from "./api-client";
 import { humanError } from "./errors";
+import { isD1QuotaCode } from "@tayori/shared/d1-errors";
 import { ensureFolderPaths } from "./opml";
 import type { ImportOutline, Page } from "../types";
 
@@ -69,6 +70,11 @@ export async function importOpmlRows(
         };
       });
       onProgress([...rows]);
+      const quota = response.data.find(
+        (result) => result.status === "error" && isD1QuotaCode(result.code),
+      )?.code;
+      if (quota)
+        return { rows, interrupted: `${humanError(new Error(quota))} 取り込みを中断しました。` };
     } catch (error) {
       const reason = `結果を確認できませんでした。${humanError(error)} 再試行時に登録済みか確認します。`;
       for (const index of batchIndexes)

@@ -173,9 +173,7 @@ describe("initial feed fetch scheduling", () => {
       expect(response.status).toBe(201);
       expect(send).toHaveBeenCalledTimes(1);
       expect(jobs).toEqual([{ id: jobs[0]?.id, status: "pending" }]);
-      expect(log).toHaveBeenCalledWith(
-        expect.stringContaining("initial_feed_fetch_enqueue_failed"),
-      );
+      expect(log).toHaveBeenCalledWith({ event: "initial_feed_fetch_enqueue_failed" });
     } finally {
       log.mockRestore();
     }

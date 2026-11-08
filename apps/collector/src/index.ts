@@ -1,4 +1,5 @@
 import type { QueueMessage } from "@tayori/shared";
+import { classifyD1QuotaError } from "@tayori/shared/d1-errors";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
 import { loadCollectionSchedule, nextCollectionAt } from "@tayori/shared/collection-schedule";
 import {
@@ -52,10 +53,16 @@ export default {
       if (!isQueueMessage(value)) {
         throw new Error("Invalid queue message");
       }
-      if (value.type === "tick") {
-        await processTick(env, value.scheduledAt, value.cursor);
-      } else {
-        await processFetch(env, value.jobId, message.attempts > 1);
+      try {
+        if (value.type === "tick") {
+          await processTick(env, value.scheduledAt, value.cursor);
+        } else {
+          await processFetch(env, value.jobId, message.attempts > 1);
+        }
+      } catch (error) {
+        const code = classifyD1QuotaError(error);
+        if (code) console.error({ event: "d1_quota_exceeded", code });
+        throw error;
       }
     }
   },
@@ -250,6 +257,7 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
       ).bind(now, job.id),
     ]);
   } catch (error) {
+    if (classifyD1QuotaError(error)) throw error;
     if (
       error instanceof FeedFetchError ||
       error instanceof FeedParseError ||
