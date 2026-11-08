@@ -61,7 +61,6 @@ type ArticleRow = {
   read_at: number | null;
   starred: number;
   read_later: number;
-  saved_in_board: number;
   version: number;
 };
 
@@ -133,8 +132,7 @@ api.get("/folders", async (c) => {
         WHERE s.folder_id IN (WITH RECURSIVE descendants(id) AS (
           SELECT f.id UNION ALL SELECT child.id FROM folders child JOIN descendants d ON child.parent_id=d.id
         ) SELECT id FROM descendants)
-        AND a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-          EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))) AS unread_count
+        AND a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)) AS unread_count
      FROM folders f ORDER BY f.sort_order, lower(f.name), f.id`,
   )
     .bind(now)
@@ -264,8 +262,7 @@ api.get("/sources", async (c) => {
     `WITH unread AS (
        SELECT k.source_id, COUNT(*) AS unread_count
        FROM articles a JOIN item_keys k ON k.id = a.id
-       WHERE a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-         EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))
+       WHERE a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)
        GROUP BY k.source_id
      )
      SELECT s.id, s.generation, s.folder_id, s.title, s.site_url, s.normalized_url, s.status, s.interval_minutes,
@@ -481,13 +478,10 @@ api.get("/articles", async (c) => {
     throw new ApiError(400, "INVALID_SCOPE");
   const sourceId = optionalId(c.req.query("sourceId"));
   const folderId = optionalId(c.req.query("folderId"));
-  const boardId = optionalId(c.req.query("boardId"));
   const limit =
     c.req.query("limit") === undefined ? 50 : readInteger(Number(c.req.query("limit")), 1, 50);
   const cursor = c.req.query("cursor") ? decodeCursor(c.req.query("cursor")!) : null;
-  const where = [
-    "(a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id=a.id))",
-  ];
+  const where = ["(a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)"];
   const values: Array<string | number | null> = [unixNow()];
   if (scope === "unread") where.push("a.read_at IS NULL");
   if (scope === "read-later") where.push("a.read_later = 1");
@@ -503,12 +497,6 @@ api.get("/articles", async (c) => {
     ) SELECT id FROM descendants)`);
     values.push(folderId);
   }
-  if (boardId) {
-    where.push(
-      "EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id AND ba.board_id = ?)",
-    );
-    values.push(boardId);
-  }
   if (cursor) {
     where.push(
       "(COALESCE(a.published_at, a.first_seen_at) < ? OR (COALESCE(a.published_at, a.first_seen_at) = ? AND a.id < ?))",
@@ -520,7 +508,6 @@ api.get("/articles", async (c) => {
     `SELECT a.id, s.id AS source_id, s.title AS source_title, a.title, a.url, a.author,
        a.summary_text, a.published_at, a.first_seen_at, a.expires_at, a.read_at,
        a.starred, a.read_later,
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id) AS saved_in_board,
        a.version
      FROM articles a JOIN item_keys k ON k.id = a.id JOIN sources s ON s.id = k.source_id
      WHERE ${where.join(" AND ")}
@@ -865,18 +852,16 @@ async function loadArticle(db: D1Database, id: string): Promise<ArticleRow | nul
       `SELECT a.id, s.id AS source_id, s.title AS source_title, a.title, a.url, a.author,
        a.summary_text, a.published_at, a.first_seen_at, a.expires_at, a.read_at,
        a.starred, a.read_later,
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id) AS saved_in_board,
        a.version
      FROM articles a JOIN item_keys k ON k.id = a.id JOIN sources s ON s.id = k.source_id
-     WHERE a.id = ? AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))`,
+     WHERE a.id = ? AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)`,
     )
     .bind(id, unixNow())
     .first<ArticleRow>();
 }
 
 function articleDto(row: ArticleRow) {
-  const saved = Boolean(row.read_later || row.starred || row.saved_in_board);
+  const saved = Boolean(row.read_later || row.starred);
   return {
     id: row.id,
     sourceId: row.source_id,
