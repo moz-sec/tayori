@@ -55,7 +55,6 @@ type ArticleRow = {
   read_at: number | null;
   starred: number;
   read_later: number;
-  saved_in_board: number;
   version: number;
 };
 
@@ -129,8 +128,7 @@ api.get("/folders", async (c) => {
         WHERE s.folder_id IN (WITH RECURSIVE descendants(id) AS (
           SELECT f.id UNION ALL SELECT child.id FROM folders child JOIN descendants d ON child.parent_id=d.id
         ) SELECT id FROM descendants)
-        AND a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-          EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))) AS unread_count
+        AND a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)) AS unread_count
      FROM folders f ORDER BY f.sort_order, lower(f.name), f.id`,
   )
     .bind(now)
@@ -260,8 +258,7 @@ api.get("/sources", async (c) => {
     `WITH unread AS (
        SELECT k.source_id, COUNT(*) AS unread_count
        FROM articles a JOIN item_keys k ON k.id = a.id
-       WHERE a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-         EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))
+       WHERE a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)
        GROUP BY k.source_id
      )
      SELECT s.id, s.generation, s.folder_id, s.title, s.site_url, s.normalized_url, s.status, s.interval_minutes,
@@ -482,13 +479,10 @@ api.get("/articles", async (c) => {
     throw new ApiError(400, "INVALID_SCOPE");
   const sourceId = optionalId(c.req.query("sourceId"));
   const folderId = optionalId(c.req.query("folderId"));
-  const boardId = optionalId(c.req.query("boardId"));
   const limit =
     c.req.query("limit") === undefined ? 50 : readInteger(Number(c.req.query("limit")), 1, 50);
   const cursor = c.req.query("cursor") ? decodeCursor(c.req.query("cursor")!) : null;
-  const where = [
-    "(a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id=a.id))",
-  ];
+  const where = ["(a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)"];
   const values: Array<string | number | null> = [unixNow()];
   if (scope === "unread") where.push("a.read_at IS NULL");
   if (scope === "read-later") where.push("a.read_later = 1");
@@ -504,12 +498,6 @@ api.get("/articles", async (c) => {
     ) SELECT id FROM descendants)`);
     values.push(folderId);
   }
-  if (boardId) {
-    where.push(
-      "EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id AND ba.board_id = ?)",
-    );
-    values.push(boardId);
-  }
   if (cursor) {
     where.push(
       "(COALESCE(a.published_at, a.first_seen_at) < ? OR (COALESCE(a.published_at, a.first_seen_at) = ? AND a.id < ?))",
@@ -521,7 +509,6 @@ api.get("/articles", async (c) => {
     `SELECT a.id, s.id AS source_id, s.title AS source_title, a.title, a.url, a.author,
        a.summary_text, a.published_at, a.first_seen_at, a.expires_at, a.read_at,
        a.starred, a.read_later,
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id) AS saved_in_board,
        a.version
      FROM articles a JOIN item_keys k ON k.id = a.id JOIN sources s ON s.id = k.source_id
      WHERE ${where.join(" AND ")}
@@ -613,95 +600,6 @@ api.post("/articles/read", async (c) => {
       requested: ids.length,
     },
   });
-});
-
-api.get("/boards", async (c) => {
-  const rows =
-    (
-      await c.env.DB.prepare(
-        `SELECT b.id, b.name, b.sort_order, COUNT(ba.article_id) AS article_count
-     FROM boards b LEFT JOIN board_articles ba ON ba.board_id = b.id
-     GROUP BY b.id ORDER BY b.sort_order, lower(b.name)`,
-      ).all<{ id: string; name: string; sort_order: number; article_count: number }>()
-    ).results ?? [];
-  return c.json({
-    data: rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      sortOrder: row.sort_order,
-      articleCount: row.article_count,
-    })),
-  });
-});
-
-api.post("/boards", async (c) => {
-  const name = readName((await readJson(c.req.raw)).name);
-  const id = crypto.randomUUID();
-  try {
-    await c.env.DB.prepare("INSERT INTO boards(id, name) VALUES (?, ?)").bind(id, name).run();
-  } catch {
-    throw new ApiError(409, "BOARD_ALREADY_EXISTS");
-  }
-  return c.json({ data: { id, name, sortOrder: 0, articleCount: 0 } }, 201);
-});
-
-api.patch("/boards/:id", async (c) => {
-  const body = await readJson(c.req.raw);
-  const name = body.name === undefined ? null : readName(body.name);
-  const sortOrder = body.sortOrder === undefined ? null : readInteger(body.sortOrder, 0, 100_000);
-  if (name === null && sortOrder === null) throw new ApiError(400, "NO_BOARD_CHANGES");
-  const current = await c.env.DB.prepare("SELECT name, sort_order FROM boards WHERE id = ?")
-    .bind(c.req.param("id"))
-    .first<{ name: string; sort_order: number }>();
-  if (!current) throw new ApiError(404, "BOARD_NOT_FOUND");
-  try {
-    await c.env.DB.prepare("UPDATE boards SET name = ?, sort_order = ? WHERE id = ?")
-      .bind(name ?? current.name, sortOrder ?? current.sort_order, c.req.param("id"))
-      .run();
-  } catch {
-    throw new ApiError(409, "BOARD_ALREADY_EXISTS");
-  }
-  return c.json({
-    data: {
-      id: c.req.param("id"),
-      name: name ?? current.name,
-      sortOrder: sortOrder ?? current.sort_order,
-    },
-  });
-});
-
-api.delete("/boards/:id", async (c) => {
-  const result = await c.env.DB.prepare("DELETE FROM boards WHERE id = ?")
-    .bind(c.req.param("id"))
-    .run();
-  if (!result.meta.changes) throw new ApiError(404, "BOARD_NOT_FOUND");
-  return c.body(null, 204);
-});
-
-api.put("/boards/:id/articles/:articleId", async (c) => {
-  const boardId = c.req.param("id");
-  const articleId = c.req.param("articleId");
-  await requireRow(c.env.DB, "SELECT id FROM boards WHERE id = ?", boardId, "BOARD_NOT_FOUND");
-  const result = await c.env.DB.prepare(
-    `INSERT INTO board_articles(board_id, article_id)
-     SELECT ?, id FROM articles WHERE id = ? ON CONFLICT(board_id, article_id) DO NOTHING`,
-  )
-    .bind(boardId, articleId)
-    .run();
-  if (!result.meta.changes) {
-    const exists = await c.env.DB.prepare("SELECT id FROM articles WHERE id = ?")
-      .bind(articleId)
-      .first();
-    if (!exists) throw new ApiError(404, "ARTICLE_NOT_FOUND");
-  }
-  return c.body(null, 204);
-});
-
-api.delete("/boards/:id/articles/:articleId", async (c) => {
-  await c.env.DB.prepare("DELETE FROM board_articles WHERE board_id = ? AND article_id = ?")
-    .bind(c.req.param("id"), c.req.param("articleId"))
-    .run();
-  return c.body(null, 204);
 });
 
 api.get("/status", async (c) => {
@@ -827,18 +725,16 @@ async function loadArticle(db: D1Database, id: string): Promise<ArticleRow | nul
       `SELECT a.id, s.id AS source_id, s.title AS source_title, a.title, a.url, a.author,
        a.summary_text, a.published_at, a.first_seen_at, a.expires_at, a.read_at,
        a.starred, a.read_later,
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id) AS saved_in_board,
        a.version
      FROM articles a JOIN item_keys k ON k.id = a.id JOIN sources s ON s.id = k.source_id
-     WHERE a.id = ? AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))`,
+     WHERE a.id = ? AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)`,
     )
     .bind(id, unixNow())
     .first<ArticleRow>();
 }
 
 function articleDto(row: ArticleRow) {
-  const saved = Boolean(row.read_later || row.starred || row.saved_in_board);
+  const saved = Boolean(row.read_later || row.starred);
   return {
     id: row.id,
     sourceId: row.source_id,

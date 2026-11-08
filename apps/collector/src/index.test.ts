@@ -591,3 +591,36 @@ describe("hourly RSS collection", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("article retention after board removal", () => {
+  it("purges expired ordinary articles while preserving saved states and keys", async () => {
+    source("retention", "paused");
+    const seconds = Math.floor(now / 1000);
+    for (const [id, expiry, readAt, starred, later] of [
+      ["expired", seconds - 1, 1, 0, 0],
+      ["boundary", seconds, null, 0, 0],
+      ["fresh", seconds + 1, null, 0, 0],
+      ["starred", seconds - 1, 1, 1, 0],
+      ["later", seconds - 1, null, 0, 1],
+    ] as const) {
+      database.sqlite
+        .prepare(
+          "INSERT INTO item_keys(id, source_id, key_hash, first_seen_at) VALUES (?, 'retention', ?, 1)",
+        )
+        .run(id, id);
+      database.sqlite
+        .prepare(
+          "INSERT INTO articles(id, title, url, first_seen_at, expires_at, read_at, starred, read_later) VALUES (?, ?, 'https://example.com', 1, ?, ?, ?, ?)",
+        )
+        .run(id, id, expiry, readAt, starred, later);
+    }
+    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
+    expect(
+      database.sqlite
+        .prepare("SELECT id FROM articles ORDER BY id")
+        .all()
+        .map((row) => row.id),
+    ).toEqual(["fresh", "later", "starred"]);
+    expect(database.sqlite.prepare("SELECT id FROM item_keys").all()).toHaveLength(5);
+  });
+});

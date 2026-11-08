@@ -451,7 +451,6 @@ async function purgeExpiredArticles(db: D1Database, now: number): Promise<void> 
     .prepare(
       `DELETE FROM articles WHERE id IN (
       SELECT a.id FROM articles a WHERE a.expires_at <= ? AND a.starred = 0 AND a.read_later = 0
-        AND NOT EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id)
       ORDER BY a.expires_at, a.id LIMIT 100
     )`,
     )
