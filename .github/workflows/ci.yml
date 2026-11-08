@@ -41,10 +41,21 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # npm's configured registry mirror omits Rolldown's Linux optional binding from package-lock.json.
-      - run: npm install --no-save --ignore-scripts --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Install browser for E2E
+        run: npx playwright install --with-deps chromium
+      - name: Browser E2E
+        run: npm run test:e2e
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: browser-e2e-diagnostics
+          path: |
+            output/playwright/
+            apps/app/playwright-report/
+          retention-days: 7
