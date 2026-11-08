@@ -2,24 +2,38 @@
   "name": "tayori",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
-  "engines": {
-    "node": "24.22.1"
-  },
+  "type": "module",
   "scripts": {
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "lint": "npm run lint:code && npm run lint:md",
+    "lint:code": "oxlint --max-warnings 0 .",
+    "lint:md": "markdownlint-cli2",
+    "lint:fix": "npm run lint:code -- --fix && npm run lint:md -- --fix",
     "dev": "npm run dev --workspace @tayori/app",
+    "dev:setup": "npm run db:setup:local",
     "dev:collector": "npm run dev --workspace @tayori/collector",
     "build": "npm run build --workspace @tayori/app && npm run build --workspace @tayori/collector",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "deploy": "npm run deploy --workspace @tayori/app && npm run deploy --workspace @tayori/collector",
     "db:migrate:local": "npm run db:migrate:local --workspace @tayori/app",
+    "db:seed:local": "npm run db:seed:local --workspace @tayori/app",
+    "db:setup:local": "npm run db:migrate:local && npm run db:seed:local",
     "db:migrate:remote": "npm run db:migrate:remote --workspace @tayori/app",
     "db:migrate:preview": "npm run db:migrate:preview --workspace @tayori/app",
     "test:e2e": "npm run test:e2e --workspace @tayori/app"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.24.0",
+    "oxfmt": "^0.77.0",
+    "oxlint": "^1.92.0"
+  },
+  "engines": {
+    "node": "24.22.1"
   }
 }

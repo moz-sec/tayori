@@ -10,9 +10,11 @@ export interface MarkReadResult {
 /** Marks a snapshot of selected IDs, stopping at the first failed batch so only unconfirmed IDs need retry. */
 export async function markArticlesRead(
   articleIds: readonly string[],
-  send: (ids: string[]) => Promise<{ data: { updated: number } }> = (ids) => request("/articles/read", {
-    method: "POST", body: JSON.stringify({ articleIds: ids, read: true }),
-  }),
+  send: (ids: string[]) => Promise<{ data: { updated: number } }> = (ids) =>
+    request("/articles/read", {
+      method: "POST",
+      body: JSON.stringify({ articleIds: ids, read: true }),
+    }),
 ): Promise<MarkReadResult> {
   const ids = [...new Set(articleIds)];
   let completed = 0;

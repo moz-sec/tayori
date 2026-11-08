@@ -1,12 +1,18 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
-import { DEFAULT_RETENTION_DAYS, normalizeFeedUrl } from "@tayori/shared";
+import {
+  DEFAULT_RETENTION_DAYS,
+  MAX_QUEUE_OPERATIONS_PER_DAY,
+  normalizeFeedUrl,
+} from "@tayori/shared";
 import type { QueueMessage } from "@tayori/shared";
+import { classifyD1QuotaError, secondsUntilNextUtcDay } from "@tayori/shared/d1-errors";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
 import { nextCollectionAt, loadCollectionSchedule } from "@tayori/shared/collection-schedule";
 import { collectionSettingsApi } from "./collection-settings-api";
 import { authenticate } from "./auth";
 import { registerApiOperations } from "./api-docs";
+import { apiErrorCategory } from "./api-error-category";
 
 type AppEnv = {
   Bindings: Env;
@@ -55,12 +61,14 @@ type ArticleRow = {
   read_at: number | null;
   starred: number;
   read_later: number;
-  saved_in_board: number;
   version: number;
 };
 
 class ApiError extends Error {
-  constructor(readonly status: 400 | 404 | 409 | 413 | 415, readonly code: string) {
+  constructor(
+    readonly status: 400 | 404 | 409 | 413 | 415,
+    readonly code: string,
+  ) {
     super(code);
   }
 }
@@ -81,7 +89,10 @@ api.use("*", async (c, next) => {
     if (!origin || origin !== new URL(c.req.url).origin) {
       return c.json({ error: { code: "ORIGIN_NOT_ALLOWED" } }, 403);
     }
-    if (c.req.method !== "DELETE" && !c.req.header("Content-Type")?.toLowerCase().startsWith("application/json")) {
+    if (
+      c.req.method !== "DELETE" &&
+      !c.req.header("Content-Type")?.toLowerCase().startsWith("application/json")
+    ) {
       return c.json({ error: { code: "JSON_REQUIRED" } }, 415);
     }
   }
@@ -89,24 +100,26 @@ api.use("*", async (c, next) => {
 });
 
 api.onError((error, c) => {
+  const quota = classifyD1QuotaError(error);
+  if (quota) {
+    console.error({ event: "d1_quota_exceeded", code: quota });
+    if (quota === "D1_DAILY_READ_LIMIT" || quota === "D1_DAILY_WRITE_LIMIT")
+      c.header("Retry-After", String(secondsUntilNextUtcDay(Date.now())));
+    return c.json({ error: { code: quota } }, 503);
+  }
   if (error instanceof ApiError) {
     return c.json({ error: { code: error.code } }, error.status);
   }
   const requestId = crypto.randomUUID();
-  console.error(JSON.stringify({
-    event: "api_error",
-    requestId,
-    method: c.req.method,
-    path: new URL(c.req.url).pathname,
-    name: error.name,
-    message: error.message,
-  }));
+  console.error({ event: "api_error", requestId, category: apiErrorCategory(error) });
   return c.json({ error: { code: "INTERNAL_ERROR", requestId } }, 500);
 });
 
 api.get("/health", (c) => c.json({ data: { status: "ok" } }));
 
-api.get("/me", (c) => c.json({ data: { email: c.get("principal"), retentionDays: DEFAULT_RETENTION_DAYS } }));
+api.get("/me", (c) =>
+  c.json({ data: { email: c.get("principal"), retentionDays: DEFAULT_RETENTION_DAYS } }),
+);
 
 api.route("/settings", collectionSettingsApi);
 
@@ -119,17 +132,20 @@ api.get("/folders", async (c) => {
         WHERE s.folder_id IN (WITH RECURSIVE descendants(id) AS (
           SELECT f.id UNION ALL SELECT child.id FROM folders child JOIN descendants d ON child.parent_id=d.id
         ) SELECT id FROM descendants)
-        AND a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-          EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))) AS unread_count
+        AND a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)) AS unread_count
      FROM folders f ORDER BY f.sort_order, lower(f.name), f.id`,
-  ).bind(now).all<FolderRow>();
-  return c.json({ data: (results ?? []).map((row) => ({
-    id: row.id,
-    parentId: row.parent_id,
-    name: row.name,
-    sortOrder: row.sort_order,
-    unreadCount: row.unread_count ?? 0,
-  })) });
+  )
+    .bind(now)
+    .all<FolderRow>();
+  return c.json({
+    data: (results ?? []).map((row) => ({
+      id: row.id,
+      parentId: row.parent_id,
+      name: row.name,
+      sortOrder: row.sort_order,
+      unreadCount: row.unread_count ?? 0,
+    })),
+  });
 });
 
 api.post("/folders", async (c) => {
@@ -139,22 +155,30 @@ api.post("/folders", async (c) => {
   if (parentId) await requireRow(c.env.DB, "SELECT id FROM folders WHERE id = ?", parentId);
   const existing = await c.env.DB.prepare(
     "SELECT id FROM folders WHERE COALESCE(parent_id, '') = COALESCE(?, '') AND lower(name) = lower(?) LIMIT 1",
-  ).bind(parentId, name).first<{ id: string }>();
+  )
+    .bind(parentId, name)
+    .first<{ id: string }>();
   if (existing) throw new ApiError(409, "FOLDER_ALREADY_EXISTS");
   const id = crypto.randomUUID();
   await c.env.DB.prepare("INSERT INTO folders(id, parent_id, name) VALUES (?, ?, ?)")
-    .bind(id, parentId, name).run();
+    .bind(id, parentId, name)
+    .run();
   return c.json({ data: { id, parentId, name, sortOrder: 0 } }, 201);
 });
 
 api.patch("/folders/:id", async (c) => {
   const body = await readJson(c.req.raw);
   const id = c.req.param("id");
-  const current = await requireRow(c.env.DB, "SELECT id, parent_id, name, sort_order FROM folders WHERE id = ?", id);
+  const current = await requireRow(
+    c.env.DB,
+    "SELECT id, parent_id, name, sort_order FROM folders WHERE id = ?",
+    id,
+  );
   const row = current as { id: string; parent_id: string | null; name: string; sort_order: number };
   const name = body.name === undefined ? row.name : readName(body.name);
   const parentId = body.parentId === undefined ? row.parent_id : nullableId(body.parentId);
-  const sortOrder = body.sortOrder === undefined ? row.sort_order : readInteger(body.sortOrder, 0, 100_000);
+  const sortOrder =
+    body.sortOrder === undefined ? row.sort_order : readInteger(body.sortOrder, 0, 100_000);
   if (parentId) {
     await requireRow(c.env.DB, "SELECT id FROM folders WHERE id = ?", parentId);
     const cycle = await c.env.DB.prepare(
@@ -162,21 +186,27 @@ api.patch("/folders/:id", async (c) => {
          SELECT id FROM folders WHERE parent_id = ?
          UNION ALL SELECT f.id FROM folders f JOIN descendants d ON f.parent_id = d.id
        ) SELECT id FROM descendants WHERE id = ? LIMIT 1`,
-    ).bind(id, parentId).first<{ id: string }>();
+    )
+      .bind(id, parentId)
+      .first<{ id: string }>();
     if (parentId === id || cycle) throw new ApiError(409, "FOLDER_CYCLE");
   }
   const conflict = await c.env.DB.prepare(
     "SELECT id FROM folders WHERE id != ? AND COALESCE(parent_id, '') = COALESCE(?, '') AND lower(name) = lower(?) LIMIT 1",
-  ).bind(id, parentId, name).first<{ id: string }>();
+  )
+    .bind(id, parentId, name)
+    .first<{ id: string }>();
   if (conflict) throw new ApiError(409, "FOLDER_ALREADY_EXISTS");
   await c.env.DB.prepare("UPDATE folders SET parent_id = ?, name = ?, sort_order = ? WHERE id = ?")
-    .bind(parentId, name, sortOrder, id).run();
+    .bind(parentId, name, sortOrder, id)
+    .run();
   return c.json({ data: { id, parentId, name, sortOrder } });
 });
 
 api.post("/folders/:id/move", async (c) => {
   const body = await readJson(c.req.raw);
-  if (body.direction !== "up" && body.direction !== "down") throw new ApiError(400, "INVALID_FOLDER_DIRECTION");
+  if (body.direction !== "up" && body.direction !== "down")
+    throw new ApiError(400, "INVALID_FOLDER_DIRECTION");
   const id = c.req.param("id");
   // Materialize current sibling ranks before updating any row. A single statement prevents partial swaps.
   const { results } = await c.env.DB.prepare(
@@ -194,7 +224,9 @@ api.post("/folders/:id/move", async (c) => {
        FROM siblings CROSS JOIN moving WHERE siblings.id = folders.id
      ) WHERE id IN (SELECT id FROM siblings) AND EXISTS (SELECT 1 FROM moving)
      RETURNING id`,
-  ).bind(id, body.direction === "up" ? -1 : 1, id).all<{ id: string }>();
+  )
+    .bind(id, body.direction === "up" ? -1 : 1, id)
+    .all<{ id: string }>();
   if (!results?.some((row) => row.id === id)) throw new ApiError(404, "FOLDER_NOT_FOUND");
   return c.body(null, 204);
 });
@@ -202,7 +234,8 @@ api.post("/folders/:id/move", async (c) => {
 api.delete("/folders/:id", async (c) => {
   const id = c.req.param("id");
   const folder = await c.env.DB.prepare("SELECT parent_id FROM folders WHERE id = ?")
-    .bind(id).first<{ parent_id: string | null }>();
+    .bind(id)
+    .first<{ parent_id: string | null }>();
   if (!folder) throw new ApiError(404, "FOLDER_NOT_FOUND");
   const parentId = folder.parent_id;
   try {
@@ -213,7 +246,10 @@ api.delete("/folders/:id", async (c) => {
     ]);
   } catch (error) {
     // A failed D1 batch rolls back every move and the deletion together.
-    if (error instanceof Error && /UNIQUE constraint failed: index ['"]folders_unique_sibling_name['"]/.test(error.message)) {
+    if (
+      error instanceof Error &&
+      /UNIQUE constraint failed: index ['"]folders_unique_sibling_name['"]/.test(error.message)
+    ) {
       throw new ApiError(409, "FOLDER_DELETE_NAME_CONFLICT");
     }
     throw error;
@@ -226,8 +262,7 @@ api.get("/sources", async (c) => {
     `WITH unread AS (
        SELECT k.source_id, COUNT(*) AS unread_count
        FROM articles a JOIN item_keys k ON k.id = a.id
-       WHERE a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-         EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))
+       WHERE a.read_at IS NULL AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)
        GROUP BY k.source_id
      )
      SELECT s.id, s.generation, s.folder_id, s.title, s.site_url, s.normalized_url, s.status, s.interval_minutes,
@@ -235,8 +270,12 @@ api.get("/sources", async (c) => {
        COALESCE(u.unread_count, 0) AS unread_count
      FROM sources s LEFT JOIN unread u ON u.source_id = s.id
      ORDER BY s.status, lower(s.title), s.id`,
-  ).bind(unixNow()).all<SourceRow>();
-  return c.json({ data: (results ?? []).map((row) => ({ ...sourceDto(row), unreadCount: row.unread_count ?? 0 })) });
+  )
+    .bind(unixNow())
+    .all<SourceRow>();
+  return c.json({
+    data: (results ?? []).map((row) => ({ ...sourceDto(row), unreadCount: row.unread_count ?? 0 })),
+  });
 });
 
 api.post("/sources", async (c) => {
@@ -251,21 +290,24 @@ api.post("/sources/import", async (c) => {
   if (!Array.isArray(body.sources) || body.sources.length < 1 || body.sources.length > 5) {
     throw new ApiError(400, "IMPORT_BATCH_LIMIT");
   }
-  const results: Array<{ status: "added" | "existing" | "error"; source?: ReturnType<typeof sourceDto>; code?: string }> = [];
-  for (const input of body.sources) {
+  const results: Array<{
+    status: "added" | "existing" | "error";
+    source?: ReturnType<typeof sourceDto>;
+    code?: string;
+  }> = [];
+  for (let index = 0; index < body.sources.length; index++) {
     try {
-      const created = await createSource(c.env.DB, input);
-      await enqueueInitialFetch(c.env.DB, c.env.JOBS, created.id, created.generation);
-      results.push({ status: "added", source: sourceDto(created) });
+      results.push(await importSource(c.env.DB, c.env.JOBS, body.sources[index]));
     } catch (error) {
-      if (error instanceof ApiError && error.code === "SOURCE_ALREADY_EXISTS") {
-        const url = normalizeFeedUrl(String(asRecord(input).url ?? ""));
-        const existing = await c.env.DB.prepare("SELECT * FROM sources WHERE normalized_url = ?")
-          .bind(url).first<SourceRow>();
-        results.push({ status: "existing", ...(existing ? { source: sourceDto(existing) } : {}) });
-      } else {
-        results.push({ status: "error", code: error instanceof ApiError ? error.code : "INVALID_SOURCE" });
+      const quota = classifyD1QuotaError(error);
+      if (quota) {
+        console.error({ event: "d1_quota_exceeded", code: quota });
+        for (let pending = index; pending < body.sources.length; pending++)
+          results.push({ status: "error", code: quota });
+        break;
       }
+      if (!(error instanceof ApiError)) throw error;
+      results.push({ status: "error", code: error.code });
     }
   }
   return c.json({ data: results });
@@ -276,14 +318,17 @@ api.patch("/sources/:id", async (c) => {
   const id = c.req.param("id");
   const body = await readJson(c.req.raw);
   const current = await c.env.DB.prepare("SELECT * FROM sources WHERE id = ?")
-    .bind(id).first<SourceRow>();
+    .bind(id)
+    .first<SourceRow>();
   if (!current) throw new ApiError(404, "SOURCE_NOT_FOUND");
   // URL edits must carry the generation seen when editing began, not a fresh server-side read.
   if (body.url !== undefined && body.expectedGeneration === undefined) {
     throw new ApiError(400, "EXPECTED_SOURCE_GENERATION_REQUIRED");
   }
-  const expectedGeneration = body.expectedGeneration === undefined
-    ? current.generation : readInteger(body.expectedGeneration, 1, 2_147_483_647);
+  const expectedGeneration =
+    body.expectedGeneration === undefined
+      ? current.generation
+      : readInteger(body.expectedGeneration, 1, 2_147_483_647);
   if (expectedGeneration !== current.generation) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
   const folderId = body.folderId === undefined ? current.folder_id : nullableId(body.folderId);
   if (folderId) await requireRow(c.env.DB, "SELECT id FROM folders WHERE id = ?", folderId);
@@ -307,7 +352,17 @@ api.patch("/sources/:id", async (c) => {
              consecutive_failures = 0, last_error_code = NULL, last_error_at = NULL,
              retry_not_before = NULL, next_fetch_at = ? WHERE id = ? AND generation = ?
              AND COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?`,
-        ).bind(folderId, status, title, titleIsCustom, url, nextFetchAt, id, expectedGeneration, storedValue),
+        ).bind(
+          folderId,
+          status,
+          title,
+          titleIsCustom,
+          url,
+          nextFetchAt,
+          id,
+          expectedGeneration,
+          storedValue,
+        ),
         c.env.DB.prepare(
           `UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ?
            WHERE source_id = ? AND generation <= ? AND status IN ('pending', 'sent', 'running')
@@ -322,17 +377,23 @@ api.patch("/sources/:id", async (c) => {
   } else if (current.status === "paused" && status === "active") {
     const now = unixNow();
     const { schedule, storedValue } = await loadCollectionSchedule(c.env.DB);
-    const nextFetchAt = Math.max(
-      nextCollectionAt(schedule, now),
-      current.retry_not_before ?? 0,
-    );
+    const nextFetchAt = Math.max(nextCollectionAt(schedule, now), current.retry_not_before ?? 0);
     // Resuming waits for a future schedule boundary and never clears a feed's retry deadline.
     const [updated] = await c.env.DB.batch([
       c.env.DB.prepare(
         `UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?,
            next_fetch_at = ?, generation = generation + 1 WHERE id = ? AND generation = ?
            AND COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?`,
-      ).bind(folderId, status, title, titleIsCustom, nextFetchAt, id, expectedGeneration, storedValue),
+      ).bind(
+        folderId,
+        status,
+        title,
+        titleIsCustom,
+        nextFetchAt,
+        id,
+        expectedGeneration,
+        storedValue,
+      ),
       c.env.DB.prepare(
         `UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ?
          WHERE source_id = ? AND generation <= ? AND status IN ('pending', 'sent', 'running')
@@ -343,61 +404,92 @@ api.patch("/sources/:id", async (c) => {
   } else {
     const updated = await c.env.DB.prepare(
       "UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?, generation = generation + 1 WHERE id = ? AND generation = ?",
-    ).bind(folderId, status, title, titleIsCustom, id, expectedGeneration).run();
+    )
+      .bind(folderId, status, title, titleIsCustom, id, expectedGeneration)
+      .run();
     if (!updated.meta.changes) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
   }
-  const updated = await c.env.DB.prepare("SELECT * FROM sources WHERE id = ?").bind(id).first<SourceRow>();
+  const updated = await c.env.DB.prepare("SELECT * FROM sources WHERE id = ?")
+    .bind(id)
+    .first<SourceRow>();
   return c.json({ data: sourceDto(updated!) });
 });
 
 api.delete("/sources/:id", async (c) => {
   const result = await c.env.DB.prepare(
     "UPDATE sources SET status = 'archived', generation = generation + 1 WHERE id = ? AND status != 'archived'",
-  ).bind(c.req.param("id")).run();
+  )
+    .bind(c.req.param("id"))
+    .run();
   if (!result.meta.changes) {
-    const exists = await c.env.DB.prepare("SELECT id FROM sources WHERE id = ?").bind(c.req.param("id")).first();
+    const exists = await c.env.DB.prepare("SELECT id FROM sources WHERE id = ?")
+      .bind(c.req.param("id"))
+      .first();
     if (!exists) throw new ApiError(404, "SOURCE_NOT_FOUND");
   }
   return c.body(null, 204);
 });
 
 api.get("/subscriptions.opml", async (c) => {
-  const folders = (await c.env.DB.prepare("SELECT id, parent_id, name FROM folders ORDER BY sort_order, lower(name)")
-    .all<{ id: string; parent_id: string | null; name: string }>()).results ?? [];
-  const sources = (await c.env.DB.prepare(
-    "SELECT id, folder_id, title, site_url, normalized_url FROM sources WHERE status != 'archived' ORDER BY lower(title)",
-  ).all<{ id: string; folder_id: string | null; title: string; site_url: string | null; normalized_url: string }>()).results ?? [];
+  const folders =
+    (
+      await c.env.DB.prepare(
+        "SELECT id, parent_id, name FROM folders ORDER BY sort_order, lower(name)",
+      ).all<{ id: string; parent_id: string | null; name: string }>()
+    ).results ?? [];
+  const sources =
+    (
+      await c.env.DB.prepare(
+        "SELECT id, folder_id, title, site_url, normalized_url FROM sources WHERE status != 'archived' ORDER BY lower(title)",
+      ).all<{
+        id: string;
+        folder_id: string | null;
+        title: string;
+        site_url: string | null;
+        normalized_url: string;
+      }>()
+    ).results ?? [];
   const renderFolder = (parentId: string | null): string => {
     const childFolders = folders.filter((folder) => folder.parent_id === parentId);
     const childSources = sources.filter((source) => source.folder_id === parentId);
-    const entries = childFolders.map((folder) =>
-      `<outline text="${xmlEscape(folder.name)}" title="${xmlEscape(folder.name)}">${renderFolder(folder.id)}</outline>`,
-    ).concat(childSources.map((source) =>
-      `<outline type="rss" text="${xmlEscape(source.title)}" title="${xmlEscape(source.title)}" xmlUrl="${xmlEscape(source.normalized_url)}"${source.site_url ? ` htmlUrl="${xmlEscape(source.site_url)}"` : ""}/>`
-    ));
+    const entries = childFolders
+      .map(
+        (folder) =>
+          `<outline text="${xmlEscape(folder.name)}" title="${xmlEscape(folder.name)}">${renderFolder(folder.id)}</outline>`,
+      )
+      .concat(
+        childSources.map(
+          (source) =>
+            `<outline type="rss" text="${xmlEscape(source.title)}" title="${xmlEscape(source.title)}" xmlUrl="${xmlEscape(source.normalized_url)}"${source.site_url ? ` htmlUrl="${xmlEscape(source.site_url)}"` : ""}/>`,
+        ),
+      );
     return entries.join("");
   };
   const opml = `<?xml version="1.0" encoding="UTF-8"?><opml version="2.0"><head><title>Tayori subscriptions</title></head><body>${renderFolder(null)}</body></opml>`;
   return c.body(opml, 200, {
     "Content-Type": "application/xml; charset=utf-8",
-    "Content-Disposition": "attachment; filename=\"tayori-subscriptions.opml\"",
+    "Content-Disposition": 'attachment; filename="tayori-subscriptions.opml"',
   });
 });
 
 api.get("/articles", async (c) => {
   const scope = c.req.query("scope") ?? "all";
-  if (!["all", "unread", "read-later", "starred"].includes(scope)) throw new ApiError(400, "INVALID_SCOPE");
+  if (!["all", "unread", "read-later", "starred"].includes(scope))
+    throw new ApiError(400, "INVALID_SCOPE");
   const sourceId = optionalId(c.req.query("sourceId"));
   const folderId = optionalId(c.req.query("folderId"));
-  const boardId = optionalId(c.req.query("boardId"));
-  const limit = c.req.query("limit") === undefined ? 50 : readInteger(Number(c.req.query("limit")), 1, 50);
+  const limit =
+    c.req.query("limit") === undefined ? 50 : readInteger(Number(c.req.query("limit")), 1, 50);
   const cursor = c.req.query("cursor") ? decodeCursor(c.req.query("cursor")!) : null;
-  const where = ["(a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id=a.id))"];
+  const where = ["(a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)"];
   const values: Array<string | number | null> = [unixNow()];
   if (scope === "unread") where.push("a.read_at IS NULL");
   if (scope === "read-later") where.push("a.read_later = 1");
   if (scope === "starred") where.push("a.starred = 1");
-  if (sourceId) { where.push("s.id = ?"); values.push(sourceId); }
+  if (sourceId) {
+    where.push("s.id = ?");
+    values.push(sourceId);
+  }
   if (folderId) {
     where.push(`s.folder_id IN (WITH RECURSIVE descendants(id) AS (
       SELECT id FROM folders WHERE id = ? UNION ALL
@@ -405,9 +497,10 @@ api.get("/articles", async (c) => {
     ) SELECT id FROM descendants)`);
     values.push(folderId);
   }
-  if (boardId) { where.push("EXISTS (SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id AND ba.board_id = ?)"); values.push(boardId); }
   if (cursor) {
-    where.push("(COALESCE(a.published_at, a.first_seen_at) < ? OR (COALESCE(a.published_at, a.first_seen_at) = ? AND a.id < ?))");
+    where.push(
+      "(COALESCE(a.published_at, a.first_seen_at) < ? OR (COALESCE(a.published_at, a.first_seen_at) = ? AND a.id < ?))",
+    );
     values.push(cursor.at, cursor.at, cursor.id);
   }
   values.push(limit + 1);
@@ -415,17 +508,21 @@ api.get("/articles", async (c) => {
     `SELECT a.id, s.id AS source_id, s.title AS source_title, a.title, a.url, a.author,
        a.summary_text, a.published_at, a.first_seen_at, a.expires_at, a.read_at,
        a.starred, a.read_later,
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id) AS saved_in_board,
        a.version
      FROM articles a JOIN item_keys k ON k.id = a.id JOIN sources s ON s.id = k.source_id
      WHERE ${where.join(" AND ")}
      ORDER BY COALESCE(a.published_at, a.first_seen_at) DESC, a.id DESC LIMIT ?`,
-  ).bind(...values).all<ArticleRow>();
+  )
+    .bind(...values)
+    .all<ArticleRow>();
   const rows = result.results ?? [];
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
   const last = page.at(-1);
-  return c.json({ data: page.map(articleDto), nextCursor: hasMore && last ? encodeCursor(last) : null });
+  return c.json({
+    data: page.map(articleDto),
+    nextCursor: hasMore && last ? encodeCursor(last) : null,
+  });
 });
 
 api.get("/articles/:id", async (c) => {
@@ -441,25 +538,34 @@ api.patch("/articles/:id", async (c) => {
   const values: Array<string | number | null> = [];
   if (body.read !== undefined) {
     if (typeof body.read !== "boolean") throw new ApiError(400, "INVALID_READ_STATE");
-    fields.push("read_at = ?"); values.push(body.read ? unixNow() : null);
+    fields.push("read_at = ?");
+    values.push(body.read ? unixNow() : null);
   }
   if (body.starred !== undefined) {
     if (typeof body.starred !== "boolean") throw new ApiError(400, "INVALID_STAR_STATE");
-    fields.push("starred = ?"); values.push(Number(body.starred));
+    fields.push("starred = ?");
+    values.push(Number(body.starred));
   }
   if (body.readLater !== undefined) {
     if (typeof body.readLater !== "boolean") throw new ApiError(400, "INVALID_SAVE_STATE");
-    fields.push("read_later = ?"); values.push(Number(body.readLater));
+    fields.push("read_later = ?");
+    values.push(Number(body.readLater));
   }
   if (!fields.length) throw new ApiError(400, "NO_ARTICLE_CHANGES");
-  const expectedVersion = body.expectedVersion === undefined ? null : readInteger(body.expectedVersion, 1, 2_147_483_647);
+  const expectedVersion =
+    body.expectedVersion === undefined ? null : readInteger(body.expectedVersion, 1, 2_147_483_647);
   values.push(id);
   let versionFilter = "";
-  if (expectedVersion !== null) { versionFilter = " AND version = ?"; values.push(expectedVersion); }
+  if (expectedVersion !== null) {
+    versionFilter = " AND version = ?";
+    values.push(expectedVersion);
+  }
   const update = await c.env.DB.prepare(
     `UPDATE articles SET ${fields.join(", ")}, version = version + 1, updated_at = unixepoch()
      WHERE id = ?${versionFilter}`,
-  ).bind(...values).run();
+  )
+    .bind(...values)
+    .run();
   if (!update.meta.changes) {
     const exists = await loadArticle(c.env.DB, id);
     if (!exists) throw new ApiError(404, "ARTICLE_NOT_FOUND");
@@ -471,24 +577,47 @@ api.patch("/articles/:id", async (c) => {
 
 api.post("/articles/read", async (c) => {
   const body = await readJson(c.req.raw);
-  if (!Array.isArray(body.articleIds) || body.articleIds.length > 50 || typeof body.read !== "boolean") {
+  if (
+    !Array.isArray(body.articleIds) ||
+    body.articleIds.length > 50 ||
+    typeof body.read !== "boolean"
+  ) {
     throw new ApiError(400, "INVALID_BULK_READ");
   }
   const ids = [...new Set(body.articleIds.map((id) => readId(id)))];
   const at = body.read ? unixNow() : null;
-  const results = await c.env.DB.batch(ids.map((id) => c.env.DB.prepare(
-    "UPDATE articles SET read_at = ?, version = version + 1, updated_at = unixepoch() WHERE id = ?",
-  ).bind(at, id)));
-  return c.json({ data: { updated: results.reduce((total, result) => total + result.meta.changes, 0), requested: ids.length } });
+  const results = await c.env.DB.batch(
+    ids.map((id) =>
+      c.env.DB.prepare(
+        "UPDATE articles SET read_at = ?, version = version + 1, updated_at = unixepoch() WHERE id = ?",
+      ).bind(at, id),
+    ),
+  );
+  return c.json({
+    data: {
+      updated: results.reduce((total, result) => total + result.meta.changes, 0),
+      requested: ids.length,
+    },
+  });
 });
 
 api.get("/boards", async (c) => {
-  const rows = (await c.env.DB.prepare(
-    `SELECT b.id, b.name, b.sort_order, COUNT(ba.article_id) AS article_count
+  const rows =
+    (
+      await c.env.DB.prepare(
+        `SELECT b.id, b.name, b.sort_order, COUNT(ba.article_id) AS article_count
      FROM boards b LEFT JOIN board_articles ba ON ba.board_id = b.id
      GROUP BY b.id ORDER BY b.sort_order, lower(b.name)`,
-  ).all<{ id: string; name: string; sort_order: number; article_count: number }>()).results ?? [];
-  return c.json({ data: rows.map((row) => ({ id: row.id, name: row.name, sortOrder: row.sort_order, articleCount: row.article_count })) });
+      ).all<{ id: string; name: string; sort_order: number; article_count: number }>()
+    ).results ?? [];
+  return c.json({
+    data: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      sortOrder: row.sort_order,
+      articleCount: row.article_count,
+    })),
+  });
 });
 
 api.post("/boards", async (c) => {
@@ -496,7 +625,8 @@ api.post("/boards", async (c) => {
   const id = crypto.randomUUID();
   try {
     await c.env.DB.prepare("INSERT INTO boards(id, name) VALUES (?, ?)").bind(id, name).run();
-  } catch {
+  } catch (error) {
+    if (classifyD1QuotaError(error)) throw error;
     throw new ApiError(409, "BOARD_ALREADY_EXISTS");
   }
   return c.json({ data: { id, name, sortOrder: 0, articleCount: 0 } }, 201);
@@ -508,19 +638,30 @@ api.patch("/boards/:id", async (c) => {
   const sortOrder = body.sortOrder === undefined ? null : readInteger(body.sortOrder, 0, 100_000);
   if (name === null && sortOrder === null) throw new ApiError(400, "NO_BOARD_CHANGES");
   const current = await c.env.DB.prepare("SELECT name, sort_order FROM boards WHERE id = ?")
-    .bind(c.req.param("id")).first<{ name: string; sort_order: number }>();
+    .bind(c.req.param("id"))
+    .first<{ name: string; sort_order: number }>();
   if (!current) throw new ApiError(404, "BOARD_NOT_FOUND");
   try {
     await c.env.DB.prepare("UPDATE boards SET name = ?, sort_order = ? WHERE id = ?")
-      .bind(name ?? current.name, sortOrder ?? current.sort_order, c.req.param("id")).run();
-  } catch {
+      .bind(name ?? current.name, sortOrder ?? current.sort_order, c.req.param("id"))
+      .run();
+  } catch (error) {
+    if (classifyD1QuotaError(error)) throw error;
     throw new ApiError(409, "BOARD_ALREADY_EXISTS");
   }
-  return c.json({ data: { id: c.req.param("id"), name: name ?? current.name, sortOrder: sortOrder ?? current.sort_order } });
+  return c.json({
+    data: {
+      id: c.req.param("id"),
+      name: name ?? current.name,
+      sortOrder: sortOrder ?? current.sort_order,
+    },
+  });
 });
 
 api.delete("/boards/:id", async (c) => {
-  const result = await c.env.DB.prepare("DELETE FROM boards WHERE id = ?").bind(c.req.param("id")).run();
+  const result = await c.env.DB.prepare("DELETE FROM boards WHERE id = ?")
+    .bind(c.req.param("id"))
+    .run();
   if (!result.meta.changes) throw new ApiError(404, "BOARD_NOT_FOUND");
   return c.body(null, 204);
 });
@@ -532,9 +673,13 @@ api.put("/boards/:id/articles/:articleId", async (c) => {
   const result = await c.env.DB.prepare(
     `INSERT INTO board_articles(board_id, article_id)
      SELECT ?, id FROM articles WHERE id = ? ON CONFLICT(board_id, article_id) DO NOTHING`,
-  ).bind(boardId, articleId).run();
+  )
+    .bind(boardId, articleId)
+    .run();
   if (!result.meta.changes) {
-    const exists = await c.env.DB.prepare("SELECT id FROM articles WHERE id = ?").bind(articleId).first();
+    const exists = await c.env.DB.prepare("SELECT id FROM articles WHERE id = ?")
+      .bind(articleId)
+      .first();
     if (!exists) throw new ApiError(404, "ARTICLE_NOT_FOUND");
   }
   return c.body(null, 204);
@@ -542,17 +687,52 @@ api.put("/boards/:id/articles/:articleId", async (c) => {
 
 api.delete("/boards/:id/articles/:articleId", async (c) => {
   await c.env.DB.prepare("DELETE FROM board_articles WHERE board_id = ? AND article_id = ?")
-    .bind(c.req.param("id"), c.req.param("articleId")).run();
+    .bind(c.req.param("id"), c.req.param("articleId"))
+    .run();
   return c.body(null, 204);
 });
 
 api.get("/status", async (c) => {
-  const [tick, failures, active] = await Promise.all([
-    c.env.DB.prepare("SELECT value FROM app_state WHERE key = 'last_tick'").first<{ value: string }>(),
-    c.env.DB.prepare("SELECT COUNT(*) AS count FROM sources WHERE status = 'active' AND consecutive_failures > 0").first<{ count: number }>(),
-    c.env.DB.prepare("SELECT COUNT(*) AS count FROM sources WHERE status = 'active'").first<{ count: number }>(),
+  const [tick, failures, active, operations] = await Promise.all([
+    c.env.DB.prepare("SELECT value FROM app_state WHERE key = 'last_tick'").first<{
+      value: string;
+    }>(),
+    c.env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM sources WHERE status = 'active' AND consecutive_failures > 0",
+    ).first<{ count: number }>(),
+    c.env.DB.prepare("SELECT COUNT(*) AS count FROM sources WHERE status = 'active'").first<{
+      count: number;
+    }>(),
+    c.env.DB.prepare(`SELECT
+      (SELECT MAX(last_success_at) FROM sources WHERE status = 'active') AS last_success,
+      (SELECT MAX(consecutive_failures) FROM sources WHERE status = 'active') AS max_failures,
+      (SELECT MIN(created_at) FROM fetch_jobs WHERE status IN ('pending','sent','running')) AS oldest_job,
+      (SELECT reserved_queue_ops FROM daily_usage WHERE day_utc = ?) AS reserved_queue_ops`)
+      .bind(new Date().toISOString().slice(0, 10))
+      .first<{
+        last_success: number | null;
+        max_failures: number | null;
+        oldest_job: number | null;
+        reserved_queue_ops: number | null;
+      }>(),
   ]);
-  return c.json({ data: { lastTickAt: tick ? new Date(Number(tick.value) * 1000).toISOString() : null, activeSources: active?.count ?? 0, failingSources: failures?.count ?? 0 } });
+  return c.json({
+    data: {
+      lastTickAt: tick ? new Date(Number(tick.value) * 1000).toISOString() : null,
+      activeSources: active?.count ?? 0,
+      failingSources: failures?.count ?? 0,
+      lastSuccessAt:
+        operations?.last_success == null
+          ? null
+          : new Date(operations.last_success * 1000).toISOString(),
+      oldestPendingAt:
+        operations?.oldest_job == null
+          ? null
+          : new Date(operations.oldest_job * 1000).toISOString(),
+      maxConsecutiveFailures: operations?.max_failures ?? 0,
+      queueBudgetStopped: (operations?.reserved_queue_ops ?? 0) > MAX_QUEUE_OPERATIONS_PER_DAY - 4,
+    },
+  });
 });
 
 registerApiOperations(api.openAPIRegistry);
@@ -577,14 +757,18 @@ async function createSource(db: D1Database, input: unknown): Promise<SourceRow> 
   const url = readFeedUrl(body.url);
   const folderId = body.folderId === undefined ? null : nullableId(body.folderId);
   if (folderId) await requireRow(db, "SELECT id FROM folders WHERE id = ?", folderId);
-  const title = body.title === undefined || body.title === "" ? new URL(url).hostname : readName(body.title);
+  const title =
+    body.title === undefined || body.title === "" ? new URL(url).hostname : readName(body.title);
   const titleIsCustom = body.title === undefined || body.title === "" ? 0 : 1;
   const siteUrl = body.siteUrl === undefined ? null : readOptionalHttpUrl(body.siteUrl);
   const id = crypto.randomUUID();
   try {
-    await db.prepare(
-      "INSERT INTO sources(id, kind, normalized_url, folder_id, title, title_is_custom, site_url, status, interval_minutes, next_fetch_at) VALUES (?, 'rss', ?, ?, ?, ?, ?, 'active', 60, unixepoch())",
-    ).bind(id, url, folderId, title, titleIsCustom, siteUrl).run();
+    await db
+      .prepare(
+        "INSERT INTO sources(id, kind, normalized_url, folder_id, title, title_is_custom, site_url, status, interval_minutes, next_fetch_at) VALUES (?, 'rss', ?, ?, ?, ?, ?, 'active', 60, unixepoch())",
+      )
+      .bind(id, url, folderId, title, titleIsCustom, siteUrl)
+      .run();
   } catch (error) {
     if (isNormalizedUrlConflict(error)) throw new ApiError(409, "SOURCE_ALREADY_EXISTS");
     throw error;
@@ -593,10 +777,31 @@ async function createSource(db: D1Database, input: unknown): Promise<SourceRow> 
   return result!;
 }
 
+/** Resolves one import item, allowing quota failures from duplicate lookup to reach the batch. */
+async function importSource(db: D1Database, jobs: Queue<QueueMessage>, input: unknown) {
+  try {
+    const created = await createSource(db, input);
+    await enqueueInitialFetch(db, jobs, created.id, created.generation);
+    return { status: "added" as const, source: sourceDto(created) };
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== "SOURCE_ALREADY_EXISTS") throw error;
+    const url = normalizeFeedUrl(String(asRecord(input).url ?? ""));
+    const existing = await db
+      .prepare("SELECT * FROM sources WHERE normalized_url = ?")
+      .bind(url)
+      .first<SourceRow>();
+    return { status: "existing" as const, ...(existing ? { source: sourceDto(existing) } : {}) };
+  }
+}
+
 /** Uses identical URL validation and normalization for registration and correction. */
 function readFeedUrl(input: unknown): string {
   if (typeof input !== "string" || input.length > 2048) throw new ApiError(400, "INVALID_FEED_URL");
-  try { return normalizeFeedUrl(input); } catch { throw new ApiError(400, "INVALID_FEED_URL"); }
+  try {
+    return normalizeFeedUrl(input);
+  } catch {
+    throw new ApiError(400, "INVALID_FEED_URL");
+  }
 }
 
 /** Persists an initial fetch job before sending it so the hourly tick can recover a failed send. */
@@ -609,8 +814,9 @@ async function enqueueInitialFetch(
   const now = unixNow();
   const jobId = crypto.randomUUID();
   try {
-    const inserted = await db.prepare(
-      `INSERT INTO fetch_jobs(id, source_id, generation, status, created_at)
+    const inserted = await db
+      .prepare(
+        `INSERT INTO fetch_jobs(id, source_id, generation, status, created_at)
        SELECT ?, id, generation, 'pending', ? FROM sources
        WHERE id = ? AND status = 'active' AND generation = ?
          AND NOT EXISTS (
@@ -618,17 +824,19 @@ async function enqueueInitialFetch(
              AND j.status IN ('pending', 'sent', 'running')
          )
        ON CONFLICT DO NOTHING`,
-    ).bind(jobId, now, sourceId, generation).run();
+      )
+      .bind(jobId, now, sourceId, generation)
+      .run();
     if (!inserted.meta.changes) return;
     await dispatchFetchJob(db, jobs, jobId, now);
   } catch (error) {
     // The source remains due for the hourly Collector tick even if initial queueing fails.
-    console.error(JSON.stringify({
-      event: "initial_feed_fetch_enqueue_failed",
-      sourceId,
-      name: error instanceof Error ? error.name : "Error",
-      message: error instanceof Error ? error.message : "Unknown error",
-    }));
+    const quota = classifyD1QuotaError(error);
+    if (quota) {
+      console.error({ event: "d1_quota_exceeded", code: quota });
+      return;
+    }
+    console.error({ event: "initial_feed_fetch_enqueue_failed" });
   }
 }
 
@@ -639,20 +847,21 @@ function isNormalizedUrlConflict(error: unknown): boolean {
 }
 
 async function loadArticle(db: D1Database, id: string): Promise<ArticleRow | null> {
-  return await db.prepare(
-    `SELECT a.id, s.id AS source_id, s.title AS source_title, a.title, a.url, a.author,
+  return await db
+    .prepare(
+      `SELECT a.id, s.id AS source_id, s.title AS source_title, a.title, a.url, a.author,
        a.summary_text, a.published_at, a.first_seen_at, a.expires_at, a.read_at,
        a.starred, a.read_later,
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id) AS saved_in_board,
        a.version
      FROM articles a JOIN item_keys k ON k.id = a.id JOIN sources s ON s.id = k.source_id
-     WHERE a.id = ? AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1 OR
-       EXISTS(SELECT 1 FROM board_articles ba WHERE ba.article_id = a.id))`,
-  ).bind(id, unixNow()).first<ArticleRow>();
+     WHERE a.id = ? AND (a.expires_at > ? OR a.starred = 1 OR a.read_later = 1)`,
+    )
+    .bind(id, unixNow())
+    .first<ArticleRow>();
 }
 
 function articleDto(row: ArticleRow) {
-  const saved = Boolean(row.read_later || row.starred || row.saved_in_board);
+  const saved = Boolean(row.read_later || row.starred);
   return {
     id: row.id,
     sourceId: row.source_id,
@@ -711,7 +920,10 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
   }
   const bytes = new Uint8Array(size);
   let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   try {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
     return asRecord(parsed);
@@ -721,7 +933,9 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function readName(value: unknown): string {
@@ -752,7 +966,8 @@ function readInteger(value: unknown, minimum: number, maximum: number): number {
 }
 
 function readId(value: unknown): string {
-  if (typeof value !== "string" || !/^[a-zA-Z0-9:_-]{1,100}$/.test(value)) throw new ApiError(400, "INVALID_ID");
+  if (typeof value !== "string" || !/^[a-zA-Z0-9:_-]{1,100}$/.test(value))
+    throw new ApiError(400, "INVALID_ID");
   return value;
 }
 
@@ -769,22 +984,32 @@ function readSourceStatus(value: unknown): "active" | "paused" {
   return value;
 }
 
-async function requireRow(db: D1Database, sql: string, value: string, notFoundCode = "NOT_FOUND"): Promise<unknown> {
+async function requireRow(
+  db: D1Database,
+  sql: string,
+  value: string,
+  notFoundCode = "NOT_FOUND",
+): Promise<unknown> {
   const row = await db.prepare(sql).bind(value).first();
   if (!row) throw new ApiError(404, notFoundCode);
   return row;
 }
 
-function unixNow(): number { return Math.floor(Date.now() / 1000); }
+function unixNow(): number {
+  return Math.floor(Date.now() / 1000);
+}
 
 function encodeCursor(row: ArticleRow): string {
   const payload = JSON.stringify({ at: row.published_at ?? row.first_seen_at, id: row.id });
   return btoa(String.fromCharCode(...new TextEncoder().encode(payload)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 function decodeCursor(value: string): { at: number; id: string } {
-  if (value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new ApiError(400, "INVALID_CURSOR");
+  if (value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value))
+    throw new ApiError(400, "INVALID_CURSOR");
   try {
     const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
     const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
@@ -796,6 +1021,10 @@ function decodeCursor(value: string): { at: number; id: string } {
 }
 
 function xmlEscape(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }

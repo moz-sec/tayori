@@ -1,12 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getMutationState, request } from "./api-client";
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 describe("pending write tracking", () => {
   it("tracks writes through response completion while ordinary reads leave the version unchanged", async () => {
     vi.stubGlobal("location", { origin: "http://localhost" });
     const initial = getMutationState();
     let finish!: (response: Response) => void;
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    );
     const write = request("/articles/a", { method: "PATCH", body: "{}" });
     expect(getMutationState()).toEqual({ pending: 1, version: initial.version + 1 });
     finish(new Response(null, { status: 204 }));

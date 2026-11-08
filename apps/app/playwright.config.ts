@@ -17,7 +17,12 @@ export default defineConfig({
     screenshot: "only-on-failure",
     ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } } }],
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+  ],
   webServer: {
     command: "npm run dev:e2e",
     url: "http://127.0.0.1:4173/api/v1/health",

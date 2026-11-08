@@ -47,24 +47,42 @@ export function normalizeFeedUrl(input: string): string {
 }
 
 export function isUnsafeHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  const host = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
 
   const octets = host.split(".").map(Number);
-  if (octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+  if (
+    octets.length === 4 &&
+    octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
+  ) {
     const [a, b, c] = octets;
-    return a === 0 || a === 10 || a === 127 || a >= 224 ||
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      a >= 224 ||
       (a === 100 && b >= 64 && b <= 127) ||
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && (b === 168 || (b === 0 && c === 0) || (b === 0 && c === 2))) ||
       (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
-      (a === 203 && b === 0 && c === 113);
+      (a === 203 && b === 0 && c === 113)
+    );
   }
 
   if (host.includes(":")) {
-    return host === "::" || host === "::1" || host.startsWith("fc") || host.startsWith("fd") ||
-      /^fe[89ab]/.test(host) || host.startsWith("ff") || host.startsWith("::ffff:");
+    return (
+      host === "::" ||
+      host === "::1" ||
+      host.startsWith("fc") ||
+      host.startsWith("fd") ||
+      /^fe[89ab]/.test(host) ||
+      host.startsWith("ff") ||
+      host.startsWith("::ffff:")
+    );
   }
   return false;
 }

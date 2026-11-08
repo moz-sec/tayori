@@ -15,12 +15,14 @@ export default defineConfig(({ isPreview, mode }) => {
       name: "tayori-app",
       compatibilityDate: "2026-09-29",
       entrypoint,
-      ...(preview ? {
-        observability: {
-          enabled: true,
-          logs: { enabled: true, headSamplingRate: 1 },
-        },
-      } : {}),
+      ...(preview
+        ? {
+            observability: {
+              enabled: true,
+              logs: { enabled: true, headSamplingRate: 1 },
+            },
+          }
+        : {}),
       assets: {
         notFoundHandling: "single-page-application",
         // The frontend is served publicly from assets; API requests run through the Worker.
@@ -29,8 +31,10 @@ export default defineConfig(({ isPreview, mode }) => {
       env: {
         DB: bindings.d1({
           name: preview ? "tayori-preview-db" : "tayori-db",
-          id: (preview ? process.env.TAYORI_PREVIEW_D1_DATABASE_ID : process.env.TAYORI_D1_DATABASE_ID)
-            ?? "00000000-0000-4000-8000-000000000001",
+          id:
+            (preview
+              ? process.env.TAYORI_PREVIEW_D1_DATABASE_ID
+              : process.env.TAYORI_D1_DATABASE_ID) ?? "00000000-0000-4000-8000-000000000001",
         }),
         JOBS: bindings.queue<QueueMessage>({ name: queueName }),
         ACCESS_TEAM_DOMAIN: bindings.secret(),

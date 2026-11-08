@@ -11,19 +11,32 @@ export interface CollectionSchedule {
 }
 
 export const DEFAULT_COLLECTION_SCHEDULE: Readonly<CollectionSchedule> = Object.freeze({
-  mode: "interval", interval_hours: 1, daily_hour_jst: 0, timezone: "Asia/Tokyo",
+  mode: "interval",
+  interval_hours: 1,
+  daily_hour_jst: 0,
+  timezone: "Asia/Tokyo",
 });
 
 /** Validates both active and inactive fields so switching modes keeps a valid setting. */
 export function parseCollectionSchedule(value: unknown): CollectionSchedule | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
-  if ((row.mode !== "interval" && row.mode !== "daily") || row.timezone !== "Asia/Tokyo" ||
-    !COLLECTION_INTERVAL_HOURS.includes(row.interval_hours as CollectionSchedule["interval_hours"]) ||
-    !Number.isInteger(row.daily_hour_jst) || Number(row.daily_hour_jst) < 0 || Number(row.daily_hour_jst) > 23) return null;
+  if (
+    (row.mode !== "interval" && row.mode !== "daily") ||
+    row.timezone !== "Asia/Tokyo" ||
+    !COLLECTION_INTERVAL_HOURS.includes(
+      row.interval_hours as CollectionSchedule["interval_hours"],
+    ) ||
+    !Number.isInteger(row.daily_hour_jst) ||
+    Number(row.daily_hour_jst) < 0 ||
+    Number(row.daily_hour_jst) > 23
+  )
+    return null;
   return {
-    mode: row.mode, interval_hours: row.interval_hours as CollectionSchedule["interval_hours"],
-    daily_hour_jst: Number(row.daily_hour_jst), timezone: "Asia/Tokyo",
+    mode: row.mode,
+    interval_hours: row.interval_hours as CollectionSchedule["interval_hours"],
+    daily_hour_jst: Number(row.daily_hour_jst),
+    timezone: "Asia/Tokyo",
   };
 }
 
@@ -44,11 +57,17 @@ export async function loadCollectionSchedule(db: D1Database): Promise<{
   schedule: CollectionSchedule;
   storedValue: string;
 }> {
-  const row = await db.prepare("SELECT value FROM app_state WHERE key = ?")
-    .bind(COLLECTION_SCHEDULE_KEY).first<{ value: string }>();
+  const row = await db
+    .prepare("SELECT value FROM app_state WHERE key = ?")
+    .bind(COLLECTION_SCHEDULE_KEY)
+    .first<{ value: string }>();
   const storedValue = row?.value ?? "";
   let schedule: CollectionSchedule | null = null;
-  try { schedule = parseCollectionSchedule(JSON.parse(storedValue)); } catch { /* Unconfigured defaults to hourly. */ }
+  try {
+    schedule = parseCollectionSchedule(JSON.parse(storedValue));
+  } catch {
+    /* Unconfigured defaults to hourly. */
+  }
   return { schedule: schedule ?? { ...DEFAULT_COLLECTION_SCHEDULE }, storedValue };
 }
 

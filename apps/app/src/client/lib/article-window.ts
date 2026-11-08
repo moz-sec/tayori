@@ -1,7 +1,10 @@
 import type { Page } from "../types";
 
 /** Refreshes the loaded window from the first page, retaining its size and a valid next cursor. */
-export async function loadArticleWindow<T>(count: number, load: (limit: number, cursor?: string) => Promise<Page<T[]>>): Promise<Page<T[]>> {
+export async function loadArticleWindow<T>(
+  count: number,
+  load: (limit: number, cursor?: string) => Promise<Page<T[]>>,
+): Promise<Page<T[]>> {
   const data: T[] = [];
   const target = Math.max(50, count);
   let cursor: string | undefined;

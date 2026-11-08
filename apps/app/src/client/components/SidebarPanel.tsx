@@ -29,28 +29,47 @@ export function SidebarPanel({ open, desktop, onDismiss, children }: SidebarPane
       closeRef.current?.focus({ preventScroll: true });
       const previousOverflow = document.documentElement.style.overflow;
       document.documentElement.style.overflow = "hidden";
-      return () => { document.documentElement.style.overflow = previousOverflow; };
+      return () => {
+        document.documentElement.style.overflow = previousOverflow;
+      };
     }
   }, [open, desktop]);
 
-  return <dialog
-    ref={dialogRef}
-    id="tayori-sidebar"
-    className="tayori-sidebar-panel"
-    aria-label="購読ナビゲーション"
-    aria-modal={desktop ? undefined : true}
-    onCancel={(event) => {
-      if (event.target !== event.currentTarget) return;
-      event.preventDefault();
-      onDismiss();
-    }}
-    onClick={(event) => {
-      if (desktop || event.target !== event.currentTarget) return;
-      const bounds = event.currentTarget.getBoundingClientRect();
-      if (event.clientX < bounds.left || event.clientX >= bounds.right || event.clientY < bounds.top || event.clientY >= bounds.bottom) onDismiss();
-    }}
-  >
-    <button ref={closeRef} id="tayori-sidebar-close" type="button" className="tayori-sidebar-close btn btn-square btn-ghost btn-sm" onClick={onDismiss} aria-label="サイドバーを閉じる"><LuPanelLeftClose aria-hidden="true" /></button>
-    {children}
-  </dialog>;
+  return (
+    <dialog
+      ref={dialogRef}
+      id="tayori-sidebar"
+      className="tayori-sidebar-panel"
+      aria-label="購読ナビゲーション"
+      aria-modal={desktop ? undefined : true}
+      onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        onDismiss();
+      }}
+      onClick={(event) => {
+        if (desktop || event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (
+          event.clientX < bounds.left ||
+          event.clientX >= bounds.right ||
+          event.clientY < bounds.top ||
+          event.clientY >= bounds.bottom
+        )
+          onDismiss();
+      }}
+    >
+      <button
+        ref={closeRef}
+        id="tayori-sidebar-close"
+        type="button"
+        className="tayori-sidebar-close btn btn-square btn-ghost btn-sm"
+        onClick={onDismiss}
+        aria-label="サイドバーを閉じる"
+      >
+        <LuPanelLeftClose aria-hidden="true" />
+      </button>
+      {children}
+    </dialog>
+  );
 }

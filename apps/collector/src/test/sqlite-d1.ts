@@ -6,7 +6,9 @@ import { URL } from "node:url";
 export function sqliteD1() {
   const sqlite = new DatabaseSync(":memory:");
   const migrations = new URL("../../../../migrations/", import.meta.url);
-  for (const name of readdirSync(migrations).filter((name) => name.endsWith(".sql")).sort()) {
+  for (const name of readdirSync(migrations)
+    .filter((name) => name.endsWith(".sql"))
+    .sort()) {
     sqlite.exec(readFileSync(new URL(name, migrations), "utf8"));
   }
   const state = {
@@ -16,8 +18,13 @@ export function sqliteD1() {
     beforeQuery: (_sql: string): void => {},
   };
   const meta = (changes = 0): D1Meta & Record<string, unknown> => ({
-    changes, changed_db: changes > 0, duration: 0, last_row_id: 0,
-    rows_read: 0, rows_written: changes, size_after: 0,
+    changes,
+    changed_db: changes > 0,
+    duration: 0,
+    last_row_id: 0,
+    rows_read: 0,
+    rows_written: changes,
+    size_after: 0,
   });
   const prepare = (sql: string, values: SQLInputValue[] = []): D1PreparedStatement => {
     const execute = () => {
@@ -33,13 +40,17 @@ export function sqliteD1() {
       bind: (...parameters: unknown[]) => prepare(sql, parameters as SQLInputValue[]),
       first: async <T>(column?: string): Promise<T | null> => {
         const row = execute().get(...values);
-        return (column ? row?.[column] : row) as T ?? null;
+        return ((column ? row?.[column] : row) as T) ?? null;
       },
       all: async <T>(): Promise<D1Result<T>> => ({
-        success: true, results: execute().all(...values) as T[], meta: meta(),
+        success: true,
+        results: execute().all(...values) as T[],
+        meta: meta(),
       }),
       run: async <T>(): Promise<D1Result<T>> => ({
-        success: true, results: [], meta: meta(Number(execute().run(...values).changes)),
+        success: true,
+        results: [],
+        meta: meta(Number(execute().run(...values).changes)),
       }),
     } as D1PreparedStatement;
   };

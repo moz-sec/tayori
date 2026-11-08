@@ -23,7 +23,10 @@ export function startForegroundSync(options: {
     if (disposed) return;
     if (options.document.visibilityState !== "visible") return;
     if (Date.now() >= nextPoll) pending = true;
-    if (!pending) { schedule(Math.max(1, nextPoll - Date.now())); return; }
+    if (!pending) {
+      schedule(Math.max(1, nextPoll - Date.now()));
+      return;
+    }
     if (running || !options.canSync() || Date.now() - lastStarted < EVENT_COOLDOWN_MS) {
       schedule(1_000);
       return;
@@ -33,16 +36,23 @@ export function startForegroundSync(options: {
     lastStarted = Date.now();
     nextPoll = lastStarted + FOREGROUND_SYNC_INTERVAL_MS;
     // The caller reports request failures. Keep event handlers free of rejected promises.
-    void Promise.resolve().then(() => {
-      if (!disposed && options.document.visibilityState === "visible" && options.canSync()) return options.sync();
-      pending = true;
-    }).catch(() => {}).finally(() => {
-      running = false;
-      schedule(pending ? 1_000 : Math.max(1, nextPoll - Date.now()));
-    });
+    void Promise.resolve()
+      .then(() => {
+        if (!disposed && options.document.visibilityState === "visible" && options.canSync())
+          return options.sync();
+        pending = true;
+      })
+      .catch(() => {})
+      .finally(() => {
+        running = false;
+        schedule(pending ? 1_000 : Math.max(1, nextPoll - Date.now()));
+      });
   };
   const onReturn = () => {
-    if (options.document.visibilityState !== "visible") { clearTimeout(timer); return; }
+    if (options.document.visibilityState !== "visible") {
+      clearTimeout(timer);
+      return;
+    }
     // A focus and visibility event commonly arrive together; one refresh covers both.
     if (Date.now() - lastStarted >= EVENT_COOLDOWN_MS) pending = true;
     drain();

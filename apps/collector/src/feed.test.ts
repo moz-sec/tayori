@@ -28,10 +28,12 @@ describe("parseFeed", () => {
   });
 
   it("rejects malformed XML, DTD, and private article links", async () => {
-    await expect(parseFeed("<!DOCTYPE rss [<!ENTITY x 'y'>]><rss/>", "https://example.com/feed"))
-      .rejects.toThrow(/DOCTYPE/);
-    await expect(parseFeed("<rss><channel>", "https://example.com/feed"))
-      .rejects.toThrow(/malformed/);
+    await expect(
+      parseFeed("<!DOCTYPE rss [<!ENTITY x 'y'>]><rss/>", "https://example.com/feed"),
+    ).rejects.toThrow(/DOCTYPE/);
+    await expect(parseFeed("<rss><channel>", "https://example.com/feed")).rejects.toThrow(
+      /malformed/,
+    );
     const result = await parseFeed(
       `<rss><channel><item><title>x</title><link>http://127.0.0.1/x</link></item></channel></rss>`,
       "https://example.com/feed",
@@ -41,10 +43,12 @@ describe("parseFeed", () => {
 });
 
 describe("isSafeFeedTarget", () => {
-  it.each(["http://localhost/feed", "http://10.0.0.4/feed", "http://169.254.169.254/", "file:///etc/passwd"])(
-    "rejects %s",
-    (url) => expect(isSafeFeedTarget(url)).toBe(false),
-  );
+  it.each([
+    "http://localhost/feed",
+    "http://10.0.0.4/feed",
+    "http://169.254.169.254/",
+    "file:///etc/passwd",
+  ])("rejects %s", (url) => expect(isSafeFeedTarget(url)).toBe(false));
   it("accepts public HTTP and HTTPS hosts", () => {
     expect(isSafeFeedTarget("https://feeds.example.com/rss")).toBe(true);
   });

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueueMessage } from "@tayori/shared";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
-import { DEFAULT_COLLECTION_SCHEDULE, nextCollectionAt, type CollectionSchedule } from "@tayori/shared/collection-schedule";
+import {
+  DEFAULT_COLLECTION_SCHEDULE,
+  nextCollectionAt,
+  type CollectionSchedule,
+} from "@tayori/shared/collection-schedule";
 import worker from "./index";
 import { sqliteD1 } from "./test/sqlite-d1";
 
@@ -14,36 +18,57 @@ let env: Env;
 
 /** Generates bounded RSS documents with stable IDs and intentionally old publication dates. */
 function feed(count: number, title = "Article", first = 0): string {
-  return `<rss version="2.0"><channel><title>Feed</title>${Array.from({ length: count }, (_, i) =>
-    `<item><guid>entry-${first + i}</guid><title>${title} ${first + i}</title><link>https://example.com/post/${first + i}</link><pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate></item>`,
+  return `<rss version="2.0"><channel><title>Feed</title>${Array.from(
+    { length: count },
+    (_, i) =>
+      `<item><guid>entry-${first + i}</guid><title>${title} ${first + i}</title><link>https://example.com/post/${first + i}</link><pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate></item>`,
   ).join("")}</channel></rss>`;
 }
 
 /** Seeds a subscription without consuming the per-invocation D1 query budget. */
 function source(id: string, status = "active", nextFetch = 0): void {
-  database.sqlite.prepare(
-    "INSERT INTO sources(id, title, normalized_url, status, next_fetch_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(id, id, `https://example.com/${id}.xml`, status, nextFetch);
+  database.sqlite
+    .prepare(
+      "INSERT INTO sources(id, title, normalized_url, status, next_fetch_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run(id, id, `https://example.com/${id}.xml`, status, nextFetch);
 }
 
 /** Simulates the API's atomic setting save while retaining failure deadlines. */
 function saveSchedule(override: Partial<CollectionSchedule>): void {
   const schedule = { ...DEFAULT_COLLECTION_SCHEDULE, ...override };
-  database.sqlite.prepare("INSERT INTO app_state(key,value) VALUES ('collection_schedule',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+  database.sqlite
+    .prepare(
+      "INSERT INTO app_state(key,value) VALUES ('collection_schedule',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+    )
     .run(JSON.stringify(schedule));
-  database.sqlite.prepare("UPDATE sources SET next_fetch_at=MAX(?, COALESCE(retry_not_before,0))")
+  database.sqlite
+    .prepare("UPDATE sources SET next_fetch_at=MAX(?, COALESCE(retry_not_before,0))")
     .run(nextCollectionAt(schedule, now / 1000));
 }
 
 /** Delivers a Queue message through the real Worker handler. */
 async function deliver(body: QueueMessage, attempts = 1): Promise<void> {
   database.state.queries = 0;
-  await worker.queue({
-    queue: "test-jobs", messages: [{
-      id: crypto.randomUUID(), timestamp: new Date(now), body, attempts, ack() {}, retry() {},
-    }], ackAll() {}, retryAll() {},
-    metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } },
-  }, env);
+  await worker.queue(
+    {
+      queue: "test-jobs",
+      messages: [
+        {
+          id: crypto.randomUUID(),
+          timestamp: new Date(now),
+          body,
+          attempts,
+          ack() {},
+          retry() {},
+        },
+      ],
+      ackAll() {},
+      retryAll() {},
+      metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } },
+    },
+    env,
+  );
 }
 
 /** Processes the in-memory queue, including continuation ticks. */
@@ -67,7 +92,8 @@ beforeEach(() => {
         queued.push(message);
         return { metadata: { metrics: { backlogCount: queued.length, backlogBytes: 0 } } };
       }),
-      sendBatch: vi.fn(), metrics: vi.fn(),
+      sendBatch: vi.fn(),
+      metrics: vi.fn(),
     },
   };
 });
@@ -91,11 +117,16 @@ describe("hourly RSS collection", () => {
     }
     expect(fetcher).not.toHaveBeenCalled();
     now = Date.parse("2026-10-18T06:12:00Z");
-    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: Date.parse("2026-10-18T06:00:00Z") });
+    await deliver({
+      schemaVersion: 1,
+      type: "tick",
+      scheduledAt: Date.parse("2026-10-18T06:00:00Z"),
+    });
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
-      .toBe(Date.parse("2026-10-18T12:00:00Z") / 1000);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at).toBe(
+      Date.parse("2026-10-18T12:00:00Z") / 1000,
+    );
   });
 
   it("runs daily at the Japan date boundary and skips missed occurrences without a backlog", async () => {
@@ -111,42 +142,57 @@ describe("hourly RSS collection", () => {
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: now - 8_000 });
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
-      .toBe(Date.parse("2026-10-19T15:00:00Z") / 1000);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at).toBe(
+      Date.parse("2026-10-19T15:00:00Z") / 1000,
+    );
     now = Date.parse("2026-10-22T17:00:08Z");
-    await deliver({ schemaVersion: 1, type: "tick", scheduledAt: Date.parse("2026-10-19T15:00:00Z") });
+    await deliver({
+      schemaVersion: 1,
+      type: "tick",
+      scheduledAt: Date.parse("2026-10-19T15:00:00Z"),
+    });
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: now - 8_000 });
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
-      .toBe(Date.parse("2026-10-23T15:00:00Z") / 1000);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at).toBe(
+      Date.parse("2026-10-23T15:00:00Z") / 1000,
+    );
   });
 
   it.each([200, 304])("preserves a setting changed during an HTTP %i fetch", async (status) => {
     source("changed-during-fetch");
-    vi.stubGlobal("fetch", vi.fn(async () => {
-      saveSchedule({ mode: "daily", daily_hour_jst: 23 });
-      return new Response(status === 200 ? feed(1) : null, { status });
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        saveSchedule({ mode: "daily", daily_hour_jst: 23 });
+        return new Response(status === 200 ? feed(1) : null, { status });
+      }),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
-    expect(database.sqlite.prepare("SELECT next_fetch_at, retry_not_before FROM sources").get())
-      .toEqual({ next_fetch_at: Date.parse("2026-10-18T14:00:00Z") / 1000, retry_not_before: null });
+    expect(
+      database.sqlite.prepare("SELECT next_fetch_at, retry_not_before FROM sources").get(),
+    ).toEqual({ next_fetch_at: Date.parse("2026-10-18T14:00:00Z") / 1000, retry_not_before: null });
     expect(database.sqlite.prepare("SELECT status FROM fetch_jobs").get()?.status).toBe("done");
   });
 
   it("applies a shorter interval saved while a daily job is running", async () => {
     source("daily-to-hourly");
-    database.sqlite.prepare("INSERT INTO app_state(key,value) VALUES ('collection_schedule',?)")
+    database.sqlite
+      .prepare("INSERT INTO app_state(key,value) VALUES ('collection_schedule',?)")
       .run(JSON.stringify({ ...DEFAULT_COLLECTION_SCHEDULE, mode: "daily", daily_hour_jst: 10 }));
-    vi.stubGlobal("fetch", vi.fn(async () => {
-      saveSchedule({ interval_hours: 1 });
-      return new Response(feed(1));
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        saveSchedule({ interval_hours: 1 });
+        return new Response(feed(1));
+      }),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
-    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
-      .toBe((ROUND + HOUR) / 1000);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at).toBe(
+      (ROUND + HOUR) / 1000,
+    );
   });
 
   it("does not create a job from a schedule replaced after due selection", async () => {
@@ -162,8 +208,9 @@ describe("hourly RSS collection", () => {
     expect(changed).toBe(true);
     expect(queued).toHaveLength(0);
     expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM fetch_jobs").get()?.n).toBe(0);
-    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
-      .toBe(Date.parse("2026-10-19T00:00:00Z") / 1000);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at).toBe(
+      Date.parse("2026-10-19T00:00:00Z") / 1000,
+    );
   });
 
   it("retains sent jobs after a schedule change and uses the newly saved schedule on completion", async () => {
@@ -174,20 +221,24 @@ describe("hourly RSS collection", () => {
     saveSchedule({ interval_hours: 12 });
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at)
-      .toBe(Date.parse("2026-10-18T12:00:00Z") / 1000);
+    expect(database.sqlite.prepare("SELECT next_fetch_at FROM sources").get()?.next_fetch_at).toBe(
+      Date.parse("2026-10-18T12:00:00Z") / 1000,
+    );
   });
 
   it("retains Retry-After across setting changes and resumes only at an eligible hourly tick", async () => {
     source("retry-schedule");
-    const fetcher = vi.fn(async () => new Response(null, { status: 429, headers: { "Retry-After": "7200" } }));
+    const fetcher = vi.fn(
+      async () => new Response(null, { status: 429, headers: { "Retry-After": "7200" } }),
+    );
     vi.stubGlobal("fetch", fetcher);
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
     const deadline = now / 1000 + 7200;
     saveSchedule({ interval_hours: 1 });
-    expect(database.sqlite.prepare("SELECT next_fetch_at, retry_not_before FROM sources").get())
-      .toEqual({ next_fetch_at: deadline, retry_not_before: deadline });
+    expect(
+      database.sqlite.prepare("SELECT next_fetch_at, retry_not_before FROM sources").get(),
+    ).toEqual({ next_fetch_at: deadline, retry_not_before: deadline });
     now = ROUND + 2 * HOUR + 8_000;
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + 2 * HOUR });
     await drain();
@@ -197,15 +248,17 @@ describe("hourly RSS collection", () => {
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + 3 * HOUR });
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(database.sqlite.prepare("SELECT retry_not_before FROM sources").get()?.retry_not_before).toBeNull();
+    expect(
+      database.sqlite.prepare("SELECT retry_not_before FROM sources").get()?.retry_not_before,
+    ).toBeNull();
   });
 
-  it("only enqueues a tick from scheduled, without doing database or HTTP work", async () => {
+  it("enqueues a tick after reading the monitoring snapshot", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     await worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env);
     expect(queued).toEqual([{ schemaVersion: 1, type: "tick", scheduledAt: ROUND }]);
-    expect(database.state.queries).toBe(0);
+    expect(database.state.queries).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -222,8 +275,11 @@ describe("hourly RSS collection", () => {
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(50);
     expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles").get()?.n).toBe(50);
-    expect(database.sqlite.prepare("SELECT DISTINCT next_fetch_at FROM sources WHERE id LIKE 'source-%'").all())
-      .toEqual([{ next_fetch_at: (ROUND + HOUR) / 1000 }]);
+    expect(
+      database.sqlite
+        .prepare("SELECT DISTINCT next_fetch_at FROM sources WHERE id LIKE 'source-%'")
+        .all(),
+    ).toEqual([{ next_fetch_at: (ROUND + HOUR) / 1000 }]);
 
     // Duplicate ticks and fetch messages must not cause another poll in this round.
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
@@ -242,41 +298,63 @@ describe("hourly RSS collection", () => {
 
   it("handles 304 without parsing XML and sends conditional request headers", async () => {
     source("cached");
-    database.sqlite.exec("UPDATE sources SET etag = 'old-etag', last_modified = 'Sun, 18 Oct 2026 00:00:00 GMT'");
-    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 304 }));
+    database.sqlite.exec(
+      "UPDATE sources SET etag = 'old-etag', last_modified = 'Sun, 18 Oct 2026 00:00:00 GMT'",
+    );
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 304 }),
+    );
     vi.stubGlobal("fetch", fetcher);
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
     const headers = new Headers(fetcher.mock.calls[0]?.[1]?.headers);
     expect(headers.get("If-None-Match")).toBe("old-etag");
     expect(headers.get("If-Modified-Since")).toBe("Sun, 18 Oct 2026 00:00:00 GMT");
-    expect(database.sqlite.prepare("SELECT last_error_code, next_fetch_at FROM sources").get())
-      .toEqual({ last_error_code: null, next_fetch_at: (ROUND + HOUR) / 1000 });
+    expect(
+      database.sqlite.prepare("SELECT last_error_code, next_fetch_at FROM sources").get(),
+    ).toEqual({ last_error_code: null, next_fetch_at: (ROUND + HOUR) / 1000 });
     expect(database.sqlite.prepare("SELECT status FROM fetch_jobs").get()?.status).toBe("done");
   });
 
   it("adds new entries, updates changed content, and preserves reading state and expired tombstones", async () => {
     source("news");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(2))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(2))),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
-    database.sqlite.exec("UPDATE articles SET read_at = 123, starred = 1, read_later = 1, version = 7 WHERE url LIKE '%/0'");
+    database.sqlite.exec(
+      "UPDATE articles SET read_at = 123, starred = 1, read_later = 1, version = 7 WHERE url LIKE '%/0'",
+    );
     const saved = database.sqlite.prepare("SELECT * FROM articles WHERE url LIKE '%/0'").get();
     database.sqlite.exec("DELETE FROM articles WHERE url LIKE '%/1'");
 
     now += HOUR;
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(3, "Edited"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(3, "Edited"))),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + HOUR });
     await drain();
     const updated = database.sqlite.prepare("SELECT * FROM articles WHERE url LIKE '%/0'").get()!;
-    expect(updated).toEqual({ ...saved, title: "Edited 0", content_hash: expect.any(String), updated_at: now / 1000, version: 8 });
+    expect(updated).toEqual({
+      ...saved,
+      title: "Edited 0",
+      content_hash: expect.any(String),
+      updated_at: now / 1000,
+      version: 8,
+    });
     expect(updated.content_hash).not.toBe(saved?.content_hash);
     expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles").get()?.n).toBe(2);
-    expect(database.sqlite.prepare("SELECT title FROM articles WHERE url LIKE '%/2'").get()?.title).toBe("Edited 2");
+    expect(
+      database.sqlite.prepare("SELECT title FROM articles WHERE url LIKE '%/2'").get()?.title,
+    ).toBe("Edited 2");
 
     // HTTP 200 with identical content must not write any article records.
     database.state.beforeQuery = (sql) => {
-      if (sql.includes("INSERT INTO articles") || sql.includes("UPDATE articles")) throw new Error("Unexpected article write");
+      if (sql.includes("INSERT INTO articles") || sql.includes("UPDATE articles"))
+        throw new Error("Unexpected article write");
     };
     now += HOUR;
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + 2 * HOUR });
@@ -285,7 +363,10 @@ describe("hourly RSS collection", () => {
 
   it("stores a 200-entry feed within D1 query and bind limits", async () => {
     source("large");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(200))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(200))),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
     expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles").get()?.n).toBe(200);
@@ -294,48 +375,68 @@ describe("hourly RSS collection", () => {
 
     // A mixed feed of 100 edits and 100 new entries must fit the same budget.
     now += HOUR;
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(200, "Edited", 100))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(200, "Edited", 100))),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + HOUR });
     await drain();
     expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles").get()?.n).toBe(300);
-    expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles WHERE version = 2").get()?.n).toBe(100);
+    expect(
+      database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles WHERE version = 2").get()?.n,
+    ).toBe(100);
     expect(database.state.maximumQueries).toBeLessThanOrEqual(50);
     expect(database.state.maximumBinds).toBeLessThanOrEqual(100);
   });
 
   it("retries partial content updates without advancing validators or updating completed entries twice", async () => {
     source("edited");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(25), { headers: { ETag: "old-etag" } })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(25), { headers: { ETag: "old-etag" } })),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
     now += HOUR;
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(30, "Edited"), { headers: { ETag: "new-etag" } })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(30, "Edited"), { headers: { ETag: "new-etag" } })),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + HOUR });
     const job = queued.shift()!;
     let batches = 0;
     database.state.beforeQuery = (sql) => {
-      if (sql.includes("INSERT INTO articles") && ++batches === 2) throw new Error("Simulated D1 outage");
+      if (sql.includes("INSERT INTO articles") && ++batches === 2)
+        throw new Error("Simulated D1 outage");
     };
     await expect(deliver(job)).rejects.toThrow("Simulated D1 outage");
-    expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles WHERE version = 2").get()?.n).toBe(10);
+    expect(
+      database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles WHERE version = 2").get()?.n,
+    ).toBe(10);
     expect(database.sqlite.prepare("SELECT etag FROM sources").get()?.etag).toBe("old-etag");
     database.state.beforeQuery = () => {};
     now += 2_000;
     await deliver(job, 2);
     expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles").get()?.n).toBe(30);
-    expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles WHERE version = 2").get()?.n).toBe(25);
+    expect(
+      database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles WHERE version = 2").get()?.n,
+    ).toBe(25);
     expect(database.sqlite.prepare("SELECT etag FROM sources").get()?.etag).toBe("new-etag");
   });
 
   it("rolls back a failed chunk and resumes after partial save without advancing validators", async () => {
     source("partial");
     database.sqlite.exec("UPDATE sources SET etag = 'old-etag'");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(25), { headers: { ETag: "new-etag" } })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(25), { headers: { ETag: "new-etag" } })),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     const job = queued.shift()!;
     let batches = 0;
     database.state.beforeQuery = (sql) => {
-      if (sql.includes("INSERT INTO articles") && ++batches === 2) throw new Error("Simulated D1 outage");
+      if (sql.includes("INSERT INTO articles") && ++batches === 2)
+        throw new Error("Simulated D1 outage");
     };
     await expect(deliver(job)).rejects.toThrow("Simulated D1 outage");
     expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM articles").get()?.n).toBe(10);
@@ -353,29 +454,49 @@ describe("hourly RSS collection", () => {
     for (let i = 0; i < 18; i++) {
       source(`recovered-${i}`);
       const status = ["pending", "sent", "running"][i % 3]!;
-      database.sqlite.prepare(
-        "INSERT INTO fetch_jobs(id, source_id, generation, status, lease_until, created_at) VALUES (?, ?, 1, ?, ?, ?)",
-      ).run(`job-${i}`, `recovered-${i}`, status, i === 1 ? null : ROUND / 1000 - 1, ROUND / 1000 - 7_200);
+      database.sqlite
+        .prepare(
+          "INSERT INTO fetch_jobs(id, source_id, generation, status, lease_until, created_at) VALUES (?, ?, 1, ?, ?, ?)",
+        )
+        .run(
+          `job-${i}`,
+          `recovered-${i}`,
+          status,
+          i === 1 ? null : ROUND / 1000 - 1,
+          ROUND / 1000 - 7_200,
+        );
     }
     source("live");
-    database.sqlite.prepare(
-      "INSERT INTO fetch_jobs(id, source_id, generation, status, lease_until) VALUES ('live-job', 'live', 1, 'sent', ?)",
-    ).run(ROUND / 1000 + 3_600);
+    database.sqlite
+      .prepare(
+        "INSERT INTO fetch_jobs(id, source_id, generation, status, lease_until) VALUES ('live-job', 'live', 1, 'sent', ?)",
+      )
+      .run(ROUND / 1000 + 3_600);
     const fetcher = vi.fn(async () => new Response(feed(1)));
     vi.stubGlobal("fetch", fetcher);
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(18);
-    expect(database.sqlite.prepare("SELECT COUNT(*) AS n FROM fetch_jobs WHERE status = 'done'").get()?.n).toBe(18);
-    expect(database.sqlite.prepare("SELECT status FROM fetch_jobs WHERE id = 'live-job'").get()?.status).toBe("sent");
+    expect(
+      database.sqlite.prepare("SELECT COUNT(*) AS n FROM fetch_jobs WHERE status = 'done'").get()
+        ?.n,
+    ).toBe(18);
+    expect(
+      database.sqlite.prepare("SELECT status FROM fetch_jobs WHERE id = 'live-job'").get()?.status,
+    ).toBe("sent");
   });
 
   it("repairs a Queue send failure at the next hourly tick", async () => {
     source("unsent");
     vi.mocked(env.JOBS.send).mockRejectedValueOnce(new Error("Queue unavailable"));
-    await expect(deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND })).rejects.toThrow("Queue unavailable");
+    await expect(deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND })).rejects.toThrow(
+      "Queue unavailable",
+    );
     expect(database.sqlite.prepare("SELECT status FROM fetch_jobs").get()?.status).toBe("pending");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(1))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(1))),
+    );
     now += HOUR;
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + HOUR });
     await drain();
@@ -384,7 +505,10 @@ describe("hourly RSS collection", () => {
 
   it("keeps a consumer's completed state when it runs before dispatch returns", async () => {
     source("fast-consumer");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(1))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(1))),
+    );
     vi.mocked(env.JOBS.send).mockImplementation(async (message) => {
       if (message.type === "fetch") await deliver(message);
       return { metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } } };
@@ -396,10 +520,15 @@ describe("hourly RSS collection", () => {
 
   it("recovers an abandoned pre-send claim after its delivery lease expires", async () => {
     source("abandoned");
-    database.sqlite.prepare(
-      "INSERT INTO fetch_jobs(id, source_id, generation, status, lease_until, created_at) VALUES ('abandoned-job', 'abandoned', 1, 'sent', ?, ?)",
-    ).run(ROUND / 1000 + 3_600, ROUND / 1000);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(feed(1))));
+    database.sqlite
+      .prepare(
+        "INSERT INTO fetch_jobs(id, source_id, generation, status, lease_until, created_at) VALUES ('abandoned-job', 'abandoned', 1, 'sent', ?, ?)",
+      )
+      .run(ROUND / 1000 + 3_600, ROUND / 1000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(feed(1))),
+    );
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     expect(queued).toHaveLength(0);
     now += HOUR;
@@ -410,22 +539,32 @@ describe("hourly RSS collection", () => {
 
   it("releases a claim when budget is exhausted without sending or stranding the job", async () => {
     source("pending-budget");
-    database.sqlite.exec("INSERT INTO fetch_jobs(id, source_id, generation, status) VALUES ('budget-job', 'pending-budget', 1, 'pending')");
-    database.sqlite.exec("INSERT INTO daily_usage(day_utc, reserved_queue_ops) VALUES ('2026-10-18', 8000)");
+    database.sqlite.exec(
+      "INSERT INTO fetch_jobs(id, source_id, generation, status) VALUES ('budget-job', 'pending-budget', 1, 'pending')",
+    );
+    database.sqlite.exec(
+      "INSERT INTO daily_usage(day_utc, reserved_queue_ops) VALUES ('2026-10-18', 8000)",
+    );
     const dispatched = await dispatchFetchJob(env.DB, env.JOBS, "budget-job", now / 1000);
     expect(dispatched).toBe(false);
     expect(queued).toHaveLength(0);
-    expect(database.sqlite.prepare("SELECT status, lease_until FROM fetch_jobs").get())
-      .toEqual({ status: "pending", lease_until: null });
+    expect(database.sqlite.prepare("SELECT status, lease_until FROM fetch_jobs").get()).toEqual({
+      status: "pending",
+      lease_until: null,
+    });
   });
 
   it("honors Retry-After and ignores old round messages", async () => {
     source("limited");
-    const fetcher = vi.fn(async () => new Response(null, { status: 429, headers: { "Retry-After": "7200" } }));
+    const fetcher = vi.fn(
+      async () => new Response(null, { status: 429, headers: { "Retry-After": "7200" } }),
+    );
     vi.stubGlobal("fetch", fetcher);
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await drain();
-    expect(database.sqlite.prepare("SELECT last_error_code FROM sources").get()?.last_error_code).toBe("http_429");
+    expect(
+      database.sqlite.prepare("SELECT last_error_code FROM sources").get()?.last_error_code,
+    ).toBe("http_429");
     now += HOUR;
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + HOUR });
@@ -435,15 +574,90 @@ describe("hourly RSS collection", () => {
 
   it("stops dispatch at the daily operation budget and resumes on the next UTC day", async () => {
     source("budget");
-    database.sqlite.exec("INSERT INTO daily_usage(day_utc, reserved_queue_ops) VALUES ('2026-10-18', 7996)");
+    database.sqlite.exec(
+      "INSERT INTO daily_usage(day_utc, reserved_queue_ops) VALUES ('2026-10-18', 7996)",
+    );
     const fetcher = vi.fn(async () => new Response(feed(1)));
     vi.stubGlobal("fetch", fetcher);
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND });
     expect(queued).toHaveLength(0);
-    expect(database.sqlite.prepare("SELECT reserved_queue_ops FROM daily_usage").get()?.reserved_queue_ops).toBe(8000);
+    expect(
+      database.sqlite.prepare("SELECT reserved_queue_ops FROM daily_usage").get()
+        ?.reserved_queue_ops,
+    ).toBe(8000);
     now += 24 * HOUR;
     await deliver({ schemaVersion: 1, type: "tick", scheduledAt: ROUND + 24 * HOUR });
     await drain();
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("structured operational logs", () => {
+  it("keeps tick dispatch working when snapshot reading fails and logs no exception details", async () => {
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    database.state.beforeQuery = (sql) => {
+      if (sql.includes("AS lastTick")) throw new Error("private secret");
+    };
+    await worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env);
+    expect(errors).toHaveBeenCalledWith({
+      event: "collection_snapshot",
+      outcome: "failed",
+      errorCode: "snapshot_unavailable",
+    });
+    expect(logs).toHaveBeenCalledWith({ event: "tick_dispatch", outcome: "success" });
+    expect(queued).toHaveLength(1);
+    expect(JSON.stringify([...logs.mock.calls, ...errors.mock.calls])).not.toContain(
+      "private secret",
+    );
+  });
+
+  it("logs tick delivery failure without swallowing it", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(env.JOBS.send).mockRejectedValueOnce(new Error("private queue detail"));
+    await expect(
+      worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env),
+    ).rejects.toThrow();
+    expect(errors).toHaveBeenCalledWith({
+      event: "tick_dispatch",
+      outcome: "failed",
+      errorCode: "queue_send_failed",
+    });
+    expect(JSON.stringify(errors.mock.calls)).not.toContain("private queue detail");
+  });
+
+  it.each([
+    [200, "success"],
+    [304, "not_modified"],
+    [503, "failed"],
+  ] as const)("records feed result %i without private fields", async (status, outcome) => {
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    source("private-source");
+    database.sqlite
+      .prepare(
+        "INSERT INTO fetch_jobs(id,source_id,generation,status,created_at) VALUES ('private-job','private-source',1,'sent',?)",
+      )
+      .run(now / 1000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(status === 200 ? feed(0) : null, { status })),
+    );
+    await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
+    expect(logs).toHaveBeenCalledWith(expect.objectContaining({ event: "fetch_result", outcome }));
+    expect(JSON.stringify(logs.mock.calls)).not.toContain("private");
+    if (status === 503)
+      expect(logs).toHaveBeenCalledWith({
+        event: "fetch_result",
+        outcome: "failed",
+        errorCode: "http_503",
+      });
+  });
+});
+
+it("logs stale fetch jobs without identifying data", async () => {
+  const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+  await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
+  expect(logs).toHaveBeenCalledWith({ event: "fetch_result", outcome: "stale" });
+  expect(JSON.stringify(logs.mock.calls)).not.toContain("private-job");
 });

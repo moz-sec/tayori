@@ -10,5 +10,11 @@
     "types": ["@cloudflare/workers-types", "node"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src/index.ts", "src/api.ts", "src/auth.ts", "cloudflare.config.ts", ".cloudflare/types"]
+  "include": [
+    "src/index.ts",
+    "src/api.ts",
+    "src/auth.ts",
+    "cloudflare.config.ts",
+    ".cloudflare/types"
+  ]
 }
