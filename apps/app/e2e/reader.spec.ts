@@ -12,10 +12,10 @@ test.beforeEach(async ({ request, page }) => {
 test("購読の登録・編集・移動・確認付き解除と既存記事の保持", async ({ page }) => {
   const create = page
     .locator("form")
-    .filter({ has: page.getByPlaceholder("https://example.com/feed.xml") });
+    .filter({ has: page.getByLabel("RSS / Atom URL", { exact: true }) });
   await create
-    .getByPlaceholder("https://example.com/feed.xml")
-    .fill("https://example.com/added.xml");
+    .getByLabel("RSS / Atom URL", { exact: true })
+    .fill("https://feed.example.test/added.xml");
   await create.getByPlaceholder("表示名（任意）").fill("追加購読");
   await create.getByRole("button", { name: "購読先を追加", exact: true }).click();
   await expect(page.getByRole("button", { name: "追加購読の購読設定", exact: true })).toBeVisible();
@@ -24,7 +24,7 @@ test("購読の登録・編集・移動・確認付き解除と既存記事の�
   await dialog.getByLabel("表示名", { exact: true }).fill("編集済み購読");
   await dialog
     .getByLabel("RSS / Atom URL", { exact: true })
-    .fill("https://example.com/changed.xml");
+    .fill("https://feed.example.test/changed.xml");
   await dialog.getByRole("combobox", { name: "所属フォルダ", exact: true }).selectOption("other");
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await expect(dialog).not.toBeVisible();
@@ -36,7 +36,7 @@ test("購読の登録・編集・移動・確認付き解除と既存記事の�
     "other",
   );
   await expect(edited.getByLabel("RSS / Atom URL", { exact: true })).toHaveValue(
-    "https://example.com/changed.xml",
+    "https://feed.example.test/changed.xml",
   );
   await edited.getByRole("button", { name: "購読解除…", exact: true }).click();
   await expect(
@@ -212,10 +212,14 @@ test("購読URLの競合後は最新一覧を読み込み、古い入力の再�
   const dialog = page.getByRole("dialog", { name: "購読設定：テスト購読", exact: true });
   await dialog
     .getByLabel("RSS / Atom URL", { exact: true })
-    .fill("https://example.com/stale-draft.xml");
+    .fill("https://feed.example.test/stale-draft.xml");
   const latest = await request.patch("/api/v1/sources/seed-source", {
     headers: { Origin: "http://127.0.0.1:4173" },
-    data: { title: "別端末URL", url: "https://example.com/latest.xml", expectedGeneration: 1 },
+    data: {
+      title: "別端末URL",
+      url: "https://feed.example.test/latest.xml",
+      expectedGeneration: 1,
+    },
   });
   expect(latest.ok()).toBeTruthy();
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
@@ -228,7 +232,7 @@ test("購読URLの競合後は最新一覧を読み込み、古い入力の再�
     page
       .getByRole("dialog", { name: "購読設定：別端末URL" })
       .getByLabel("RSS / Atom URL", { exact: true }),
-  ).toHaveValue("https://example.com/latest.xml");
+  ).toHaveValue("https://feed.example.test/latest.xml");
 });
 
 test("小さい画面でもサイドバーをスクロールして収集設定へ移動できる", async ({ page }) => {
