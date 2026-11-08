@@ -16,8 +16,6 @@ it("reads aggregate health without writes or private feed data", async () => {
     pendingJobs: 1,
     oldestPendingAgeSeconds: 90,
     queueBudgetStopped: true,
-    d1UsageState: "disabled",
-    d1UsageReason: "disabled",
   });
   expect(JSON.stringify(snapshot)).not.toContain("private");
   expect(sqlite.prepare("SELECT * FROM app_state").all()).toEqual([]);

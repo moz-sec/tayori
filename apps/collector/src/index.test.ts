@@ -253,12 +253,12 @@ describe("hourly RSS collection", () => {
     ).toBeNull();
   });
 
-  it("enqueues a tick after storing the disabled usage configuration", async () => {
+  it("enqueues a tick after reading the monitoring snapshot", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     await worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env);
     expect(queued).toEqual([{ schemaVersion: 1, type: "tick", scheduledAt: ROUND }]);
-    expect(database.state.queries).toBe(3);
+    expect(database.state.queries).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -655,18 +655,9 @@ describe("structured operational logs", () => {
   });
 });
 
-it("logs stale and budget-stopped fetch jobs without identifying data", async () => {
+it("logs stale fetch jobs without identifying data", async () => {
   const logs = vi.spyOn(console, "log").mockImplementation(() => {});
   await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
   expect(logs).toHaveBeenCalledWith({ event: "fetch_result", outcome: "stale" });
-  database.sqlite
-    .prepare("INSERT INTO app_state(key,value) VALUES ('d1_usage_config',?)")
-    .run(JSON.stringify({ enabled: true, limits: null }));
-  await deliver({ schemaVersion: 1, type: "fetch", jobId: "private-job" });
-  expect(logs).toHaveBeenCalledWith({
-    event: "fetch_result",
-    outcome: "stopped",
-    errorCode: "d1_budget_stopped",
-  });
   expect(JSON.stringify(logs.mock.calls)).not.toContain("private-job");
 });

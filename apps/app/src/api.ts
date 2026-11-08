@@ -6,7 +6,7 @@ import {
   normalizeFeedUrl,
 } from "@tayori/shared";
 import type { QueueMessage } from "@tayori/shared";
-import { readD1UsageStatus } from "@tayori/shared/d1-usage";
+import { classifyD1QuotaError, secondsUntilNextUtcDay } from "@tayori/shared/d1-errors";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
 import { nextCollectionAt, loadCollectionSchedule } from "@tayori/shared/collection-schedule";
 import { collectionSettingsApi } from "./collection-settings-api";
@@ -100,20 +100,18 @@ api.use("*", async (c, next) => {
 });
 
 api.onError((error, c) => {
+  const quota = classifyD1QuotaError(error);
+  if (quota) {
+    console.error({ event: "d1_quota_exceeded", code: quota });
+    if (quota === "D1_DAILY_READ_LIMIT" || quota === "D1_DAILY_WRITE_LIMIT")
+      c.header("Retry-After", String(secondsUntilNextUtcDay(Date.now())));
+    return c.json({ error: { code: quota } }, 503);
+  }
   if (error instanceof ApiError) {
     return c.json({ error: { code: error.code } }, error.status);
   }
   const requestId = crypto.randomUUID();
-  console.error(
-    JSON.stringify({
-      event: "api_error",
-      requestId,
-      method: c.req.method,
-      path: new URL(c.req.url).pathname,
-      name: error.name,
-      message: error.message,
-    }),
-  );
+  console.error({ event: "api_error", requestId });
   return c.json({ error: { code: "INTERNAL_ERROR", requestId } }, 500);
 });
 
@@ -305,6 +303,7 @@ api.post("/sources/import", async (c) => {
       await enqueueInitialFetch(c.env.DB, c.env.JOBS, created.id, created.generation);
       results.push({ status: "added", source: sourceDto(created) });
     } catch (error) {
+      if (classifyD1QuotaError(error)) throw error;
       if (error instanceof ApiError && error.code === "SOURCE_ALREADY_EXISTS") {
         const url = normalizeFeedUrl(String(asRecord(input).url ?? ""));
         const existing = await c.env.DB.prepare("SELECT * FROM sources WHERE normalized_url = ?")
@@ -644,7 +643,8 @@ api.post("/boards", async (c) => {
   const id = crypto.randomUUID();
   try {
     await c.env.DB.prepare("INSERT INTO boards(id, name) VALUES (?, ?)").bind(id, name).run();
-  } catch {
+  } catch (error) {
+    if (classifyD1QuotaError(error)) throw error;
     throw new ApiError(409, "BOARD_ALREADY_EXISTS");
   }
   return c.json({ data: { id, name, sortOrder: 0, articleCount: 0 } }, 201);
@@ -663,7 +663,8 @@ api.patch("/boards/:id", async (c) => {
     await c.env.DB.prepare("UPDATE boards SET name = ?, sort_order = ? WHERE id = ?")
       .bind(name ?? current.name, sortOrder ?? current.sort_order, c.req.param("id"))
       .run();
-  } catch {
+  } catch (error) {
+    if (classifyD1QuotaError(error)) throw error;
     throw new ApiError(409, "BOARD_ALREADY_EXISTS");
   }
   return c.json({
@@ -710,7 +711,7 @@ api.delete("/boards/:id/articles/:articleId", async (c) => {
 });
 
 api.get("/status", async (c) => {
-  const [tick, failures, active, d1Usage, operations] = await Promise.all([
+  const [tick, failures, active, operations] = await Promise.all([
     c.env.DB.prepare("SELECT value FROM app_state WHERE key = 'last_tick'").first<{
       value: string;
     }>(),
@@ -720,7 +721,6 @@ api.get("/status", async (c) => {
     c.env.DB.prepare("SELECT COUNT(*) AS count FROM sources WHERE status = 'active'").first<{
       count: number;
     }>(),
-    readD1UsageStatus(c.env.DB),
     c.env.DB.prepare(`SELECT
       (SELECT MAX(last_success_at) FROM sources WHERE status = 'active') AS last_success,
       (SELECT MAX(consecutive_failures) FROM sources WHERE status = 'active') AS max_failures,
@@ -739,7 +739,6 @@ api.get("/status", async (c) => {
       lastTickAt: tick ? new Date(Number(tick.value) * 1000).toISOString() : null,
       activeSources: active?.count ?? 0,
       failingSources: failures?.count ?? 0,
-      d1Usage,
       lastSuccessAt:
         operations?.last_success == null
           ? null
@@ -816,7 +815,6 @@ async function enqueueInitialFetch(
   const now = unixNow();
   const jobId = crypto.randomUUID();
   try {
-    if ((await readD1UsageStatus(db)).state === "stopped") return;
     const inserted = await db
       .prepare(
         `INSERT INTO fetch_jobs(id, source_id, generation, status, created_at)
@@ -834,14 +832,12 @@ async function enqueueInitialFetch(
     await dispatchFetchJob(db, jobs, jobId, now);
   } catch (error) {
     // The source remains due for the hourly Collector tick even if initial queueing fails.
-    console.error(
-      JSON.stringify({
-        event: "initial_feed_fetch_enqueue_failed",
-        sourceId,
-        name: error instanceof Error ? error.name : "Error",
-        message: error instanceof Error ? error.message : "Unknown error",
-      }),
-    );
+    const quota = classifyD1QuotaError(error);
+    if (quota) {
+      console.error({ event: "d1_quota_exceeded", code: quota });
+      return;
+    }
+    console.error({ event: "initial_feed_fetch_enqueue_failed" });
   }
 }
 

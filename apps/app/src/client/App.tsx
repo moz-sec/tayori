@@ -9,8 +9,6 @@ import { startForegroundSync } from "./lib/foreground-sync";
 import { loadArticleWindow } from "./lib/article-window";
 import { SourceSettingsDialog } from "./components/SourceSettingsDialog";
 import { CollectionSettingsDialog } from "./components/CollectionSettingsDialog";
-import { D1UsageNotice } from "./components/D1UsageNotice";
-import type { D1UsageControlStatus } from "@tayori/shared/d1-usage";
 import { parseOpmlFile } from "./lib/opml";
 import { importOpmlRows, summarizeImport, type ImportRow } from "./lib/opml-import";
 import { humanError } from "./lib/errors";
@@ -72,7 +70,6 @@ export function App() {
     activeSources: number;
     failingSources: number;
     lastTickAt: string | null;
-    d1Usage?: D1UsageControlStatus;
   } | null>(null);
   const [notice, setNotice] = useState("");
   const [noticeError, setNoticeError] = useState(false);
@@ -193,12 +190,7 @@ export function App() {
           request<Page<Source[]>>("/sources"),
           request<Page<{ retentionDays: number }>>("/me"),
           request<
-            Page<{
-              activeSources: number;
-              failingSources: number;
-              lastTickAt: string | null;
-              d1Usage?: D1UsageControlStatus;
-            }>
+            Page<{ activeSources: number; failingSources: number; lastTickAt: string | null }>
           >("/status"),
           background
             ? loadArticleWindow<Article>(articleCountRef.current, (limit, cursor) => {
@@ -625,11 +617,6 @@ export function App() {
             </div>
           </div>
 
-          {status?.d1Usage && (
-            <div className="mb-5 text-sm">
-              <D1UsageNotice status={status.d1Usage} />
-            </div>
-          )}
           {notice && (
             <div
               role="status"

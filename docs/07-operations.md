@@ -70,11 +70,43 @@ ETag非対応サイトで全記事を毎回UPDATEすると、この見積もり�
 
 ## 4. 停止と保持
 
-D1利用量の監視は初期状態では無効である。有効化すると、アカウント全体の日次行数と対象DBの容量を設定した閾値と比較する。
-取得値が欠落・期限切れの場合や上限に達した場合は新規取り込みを停止し、取得が回復して値が上限を下回ると再開する。
-既存記事の閲覧と期限整理は継続し、保存済み記事を監視によって削除しない。集計遅延があるため即時のハードキャップではない。
-共有枠と監視自体の消費を考慮した閾値の設定方法は[D1利用量の監視](15-d1-usage.md)を参照する。
-Cloudflareの実環境では未検証であり、無料枠でDBが拒否された場合は通常の閲覧や整理も失敗し得る。
+TayoriはWorkers Freeで運用する。D1の利用量の可視化と上限通知はCloudflareに任せ、CollectorからAnalytics APIやREST APIを定期取得しない。
+利用量のキャッシュ、独自のD1警告・停止閾値、観測値が欠けた場合の取り込み停止、アプリ画面での利用量表示は持たない。
+
+### D1の標準上限と通知
+
+Freeの日次枠はアカウント合計で読み取り500万行・書き込み10万行、容量は1DB 500MB・アカウント合計5GBである。
+日次上限に達するとD1クエリがエラーとなり、UTC 0時（日本時間9時）にリセットされる。保存済みデータは上限到達だけでは削除されない。
+取り込みだけでなく閲覧・既読・保存・期限整理も失敗し得るため、閲覧を維持できる独自のハードキャップとは扱わない。
+容量上限は日付が変わっても解消しない。Paidへの変更は行わず、保存状態とバックアップを確認してから容量の対処を判断する。
+
+Cloudflare DashboardのD1のMetricsでDB別の行数・容量、BillingのBillable Usageでアカウント内の合算を確認する。
+日次上限到達時のCloudflare標準メールについて、アカウントの連絡先と到達を確認する。
+追加の早期警告には利用可能なBilling Notificationsの読み取り・書き込み行数通知を設定し、任意閾値や容量は対応データセットのMonitorsを検討する。
+契約・権限・利用可能なデータセットを確認してから設定し、Freeで任意の通知条件が使えることを保証しない。
+通知は利用量の可視化であり、消費を停止する制御ではない。アプリのWorkerに監視用APIトークンや通知先を設定する必要はない。
+
+### アプリケーションに残す制御
+
+共通のRSS収集スケジュール、Queue操作の推計予約、ジョブの処理件数、フィード応答サイズと記事件数の上限を維持する。
+通常記事は既存の7日保持と期限整理を使い、お気に入り・あとで読むなどで保存した記事を容量の都合だけで無断削除しない。
+索引とcontent_hashによる不要な読み書きの削減も維持する。新しいグローバル保存件数制限やPaid向けの予算制御は追加しない。
+
+### 上限エラーの扱い
+
+実際にD1から上限エラーが返った場合、APIはHTTP 503と固定のエラーコードを返し、画面には日本語の案内を表示する。
+日次読み取り・書き込み上限はそれぞれ `D1_DAILY_READ_LIMIT`、`D1_DAILY_WRITE_LIMIT` とし、次のUTC 0時までの秒数をRetry-Afterに付ける。
+DB容量とアカウント容量の上限は `D1_DATABASE_STORAGE_LIMIT`、`D1_ACCOUNT_STORAGE_LIMIT` とし、日付変更で回復するという案内やRetry-Afterは付けない。
+既知のD1エラーだけを分類し、一般のSQLエラーや一時障害を上限超過と決めつけない。
+
+Collectorは上限エラーをフィードの取得失敗と混同せず、固定の `d1_quota_exceeded` イベントとコードを記録する。
+新たな停止状態をDBへ保存せず、既存のQueue再配信上限と次の定期実行によるジョブ修復を維持する。短い間隔での独自再試行は追加しない。
+回復後は画面を再読み込みして保存済みの状態と処理結果を確認する。途中で書き込みが成功していた可能性があるため、変更操作を無条件に自動再送しない。
+
+[料金](https://developers.cloudflare.com/d1/platform/pricing/)、[制限](https://developers.cloudflare.com/d1/platform/limits/)、
+[Billing通知](https://developers.cloudflare.com/d1/observability/billing/)、[D1エラー](https://developers.cloudflare.com/d1/observability/debug-d1/)、
+[Free日次上限の変更](https://developers.cloudflare.com/changelog/post/2026-09-01-d1-free-tier-limit-enforcement/)を参照する。
+Cloudflare側の通知設定、実際の上限到達と解除、実配備は未検証である。
 
 取得失敗は15分→60分→6時間→24時間等へ後退。Retry-Afterがあれば優先し、極端な指定は上限を設ける。購読ごとの取得時間を分散。上限超過フィードは警告し、同じ負荷を無限再試行しない。
 
@@ -93,19 +125,22 @@ Collectorの `observability` とLogs・Tracesを有効にし、Logsのサンプ�
 | `collection_heartbeat` | Cronの起動と予定時刻。DB照会前に記録     |
 | `tick_dispatch`        | Queueへのtick投入の成功・失敗            |
 | `collection_snapshot`  | 保存済みの集計値。取得失敗時は固定エラー |
-| `fetch_result`         | RSS取得の成功・304・失敗・失効・停止     |
+| `fetch_result`         | RSS取得の成功・304・失敗・失効           |
 
 集計には `lastTick`、`lastSuccess`、`failingSources`、`maxConsecutiveFailures`、`pendingJobs`、`oldestPendingAgeSeconds`、
-`queueBudgetStopped`、`d1UsageState`、`d1UsageReason` を含める。時刻はUnix秒、滞留時間は秒とする。
+`queueBudgetStopped` を含める。時刻はUnix秒、滞留時間は秒とする。
 未取得の時刻・滞留時間はnullを保持し、0や正常な状態に置き換えない。
 `collection_heartbeat` の `scheduledAt` は予定時刻のUnixミリ秒である。
 `collection_snapshot` は成功時に `outcome=success`、取得失敗時に `outcome=failed` と固定の `errorCode` を記録する。
-`fetch_result` の `outcome` は `success`、`not_modified`、`failed`、`stale`、`stopped` で、失敗理由は固定の `errorCode` で表す。
+`fetch_result` の `outcome` は `success`、`not_modified`、`failed`、`stale` で、失敗理由は固定の `errorCode` で表す。
 集計は現在の毎時tickが処理される前の保存済み状態を含み、現在の収集完了を表すものではない。集計の取得失敗だけでtick投入を止めない。
 フィードのURL、タイトル、本文、認証情報、記事・購読先・ジョブの識別子、例外メッセージはこれらのログへ含めない。
 
-`GET /status` の最終成功・最古の未完了ジョブ・連続失敗・Queue予算停止・D1利用量の指標は引き続き確認できる。
+`GET /status` の最終成功・最古の未完了ジョブ・連続失敗・Queue予算停止の指標は引き続き確認できる。
 RSSの取得失敗をアプリケーションが処理して正常終了した場合、Workerの例外監視だけでは分からないため、`fetch_result` と集計値も監視する。
+
+D1の実際の上限到達は `d1_quota_exceeded` イベントの固定コードで判別する。
+APIとCollectorで同じ分類を使い、本文やSQLを記録しない。
 
 ### Cloudflare側の設定
 
@@ -122,11 +157,12 @@ RSSの取得失敗をアプリケーションが処理して正常終了した�
 | Workerの実行失敗       | Workers Issues・実行結果・利用可能な通知を確認               |
 | 取得の連続失敗         | `maxConsecutiveFailures >= 3`                                |
 | ジョブの滞留           | `pendingJobs > 0` かつ `oldestPendingAgeSeconds >= 10800`    |
-| 予算による停止         | `queueBudgetStopped=true` または `d1UsageState=stopped`      |
+| 予算による停止         | `queueBudgetStopped=true`                                    |
 | 集計の取得失敗         | `collection_snapshot` かつ `outcome=failed` が評価窓内に存在 |
 | Cronの未起動・ログ欠落 | 過去3時間のheartbeat件数が1未満。ゼロ件評価の実証が前提      |
 
-取得の連続失敗・滞留・予算停止の条件には成功した集計値を使う。D1の停止理由は `d1UsageReason`、取得エラーの種別は `fetch_result` で確認する。
+取得の連続失敗・滞留・Queue予算停止の条件には成功した集計値を使う。取得エラーの種別は `fetch_result` で確認する。
+D1の上限エラーは `d1_quota_exceeded` と固定の `code` で確認する。日次と容量の区別は「停止と保持」に従う。
 Workerの例外やCron・Queueの実行失敗は、利用可能なPlatform Notificationsまたは対応データセットのMonitorを設定する。
 
 SQL例は、対象アカウントで `logs.workersLogs` と `attributes['event']` が利用できることを確認した後に使う。
@@ -153,7 +189,7 @@ Monitorsは「行なし」のクエリ結果では通知しない。`COUNT(*)` �
 
 2026-11-08時点のWorkers Logs Freeは1日20万イベント・3日保持である。アカウント内の他のWorkerと合算し、標準の実行ログとカスタムログを両方数える。
 2026-12-01からはObservabilityの新料金へ移行予定で、Freeは1日0.5GBの取り込みと7日保持となる。現在の上限と将来の上限を混同しない。
-集計は毎時2回のD1照会を行い、通常は1日48回となる。読み取り行数は対象件数とSQLの集計に依存するため実測する。
+集計は毎時1回のD1照会を行い、通常は1日24回となる。読み取り行数は対象件数とSQLの集計に依存するため実測する。
 監視自体のD1照会、ログ量、利用可能な通知・データセットを確認し、有料機能の追加を前提にしない。
 
 導入時は通常取得・304・連続失敗・滞留・予算停止・回復をテスト用データで確認し、ログの属性、Monitorの評価、通知到達を照合する。

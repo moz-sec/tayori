@@ -94,7 +94,7 @@
   - 成功: 204
 
 - Method / Path: GET /status
-  - 入力・役割: 最終tick、active件数、失敗中件数、D1利用量の状態
+  - 入力・役割: 最終tick、active件数、失敗中件数
   - 成功: 200
 
 `scope` には `all`、`unread`、`read-later`、`starred` を指定します。フォルダを指定すると、その子孫にある購読先の記事も対象になります。`cursor` の順序キーは検証し、SQL
@@ -107,10 +107,6 @@
 - `maxConsecutiveFailures`: 有効な購読先の連続失敗数の最大値。対象がなければ 0。
 - `queueBudgetStopped`: 当日 UTC の Queue 予約数が次の4操作を予約できない水準なら true。
 
-`GET /status` の `data.d1Usage` は `state`、`reason`、`metrics`、`snapshot` を返す。
-状態は `disabled`、`ok`、`warning`、`stopped` で、取得不能・期限切れや上限到達時は取り込みを停止する。
-詳細は[D1利用量の監視](15-d1-usage.md)を参照する。
-
 ## 共通契約
 
 一覧は`{"data": [], "nextCursor": null}`、単一リソースは`{"data": {}}`形式です。
@@ -121,6 +117,9 @@
 
 - API は JWT 検証に失敗した場合に401を返し、本人以外からのアクセスには403を返す。Access によるログイン画面へのリダイレクトは API の JSON 応答とは分けて扱い、UI から再ログインを案内する。
 - 入力不正400、存在しない/削除済み404、重複URLや更新version競合409、サイズ超過413、認証設定不足503。
+- D1の日次読み取り・書き込み上限は503と `D1_DAILY_READ_LIMIT` / `D1_DAILY_WRITE_LIMIT` を返す。Retry-Afterは次のUTC 0時までの秒数。
+- D1のDB容量・アカウント容量上限は503と `D1_DATABASE_STORAGE_LIMIT` / `D1_ACCOUNT_STORAGE_LIMIT` を返し、Retry-Afterは付けない。
+- 内部のSQLやエラーメッセージは上限エラーの応答へ含めない。変更操作を無条件に自動再送せず、回復後に状態を再取得する。
 - PATCHは値を指定する。toggle命令を使わず、再送時に反転させない。
 - 単一記事のversion競合は再読込して再操作。まとめて既読は冪等の値設定とし、欠けたIDと更新件数を返す。
 - 購読URL正規化と一意制約により移行の再送を許容する。フォルダの重複登録は409を返す。

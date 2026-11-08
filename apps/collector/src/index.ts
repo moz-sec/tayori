@@ -1,4 +1,5 @@
 import type { QueueMessage } from "@tayori/shared";
+import { classifyD1QuotaError } from "@tayori/shared/d1-errors";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
 import { loadCollectionSchedule, nextCollectionAt } from "@tayori/shared/collection-schedule";
 import {
@@ -7,7 +8,6 @@ import {
   MAX_FEED_RESPONSE_BYTES,
   MAX_QUEUE_OPERATIONS_PER_DAY,
 } from "@tayori/shared";
-import { refreshUsageControl, loadUsageControl } from "./usage-control";
 import { readMonitoringSnapshot } from "./monitoring";
 import { FeedParseError, parseFeed, sha256, isSafeFeedTarget } from "./feed";
 
@@ -43,14 +43,11 @@ export default {
     console.log({ event: "collection_heartbeat", scheduledAt: controller.scheduledTime });
     const now = Math.floor(Date.now() / 1000);
     try {
-      await refreshUsageControl(env, now);
-    } catch {
-      console.error({ event: "d1_usage_refresh_failed" });
-    }
-    try {
       const snapshot = await readMonitoringSnapshot(env.DB, now);
       console.log({ event: "collection_snapshot", outcome: "success", ...snapshot });
-    } catch {
+    } catch (error) {
+      const code = classifyD1QuotaError(error);
+      if (code) console.error({ event: "d1_quota_exceeded", code });
       console.error({
         event: "collection_snapshot",
         outcome: "failed",
@@ -77,15 +74,25 @@ export default {
       if (!isQueueMessage(value)) {
         throw new Error("Invalid queue message");
       }
-      if (value.type === "tick") {
-        await processTick(env, value.scheduledAt, value.cursor);
-      } else {
-        try {
-          await processFetch(env, value.jobId, message.attempts > 1);
-        } catch (error) {
-          console.error({ event: "fetch_result", outcome: "failed", errorCode: "unexpected" });
-          throw error;
+      try {
+        if (value.type === "tick") {
+          await processTick(env, value.scheduledAt, value.cursor);
+        } else {
+          try {
+            await processFetch(env, value.jobId, message.attempts > 1);
+          } catch (error) {
+            console.error({
+              event: "fetch_result",
+              outcome: "failed",
+              errorCode: classifyD1QuotaError(error) ?? "unexpected",
+            });
+            throw error;
+          }
         }
+      } catch (error) {
+        const code = classifyD1QuotaError(error);
+        if (code) console.error({ event: "d1_quota_exceeded", code });
+        throw error;
       }
     }
   },
@@ -135,8 +142,6 @@ async function processTick(env: Env, scheduledAtMs: number, cursor?: string): Pr
       ).bind(now - DEFAULT_RETENTION_DAYS * 86_400),
     ]);
   if (cursor === undefined) await purgeExpiredArticles(env.DB, now);
-
-  if ((await loadUsageControl(env.DB, now)).state === "stopped") return;
 
   const pending =
     (
@@ -202,10 +207,6 @@ async function continueTick(env: Env, roundAt: number, cursor: string, now: numb
 /** Processes a claimed feed job while preserving newer settings, retry deadlines, and article state. */
 async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  if ((await loadUsageControl(env.DB, now)).state === "stopped") {
-    console.log({ event: "fetch_result", outcome: "stopped", errorCode: "d1_budget_stopped" });
-    return;
-  }
   const job = await env.DB.prepare(
     `UPDATE fetch_jobs SET status = 'running', lease_until = ?, attempts = attempts + 1
      WHERE id = ? AND (status IN ('pending','sent') OR
@@ -292,6 +293,7 @@ async function processFetch(env: Env, jobId: string, allowRunningRetry: boolean)
     ]);
     console.log({ event: "fetch_result", outcome: "success" });
   } catch (error) {
+    if (classifyD1QuotaError(error)) throw error;
     if (
       error instanceof FeedFetchError ||
       error instanceof FeedParseError ||
