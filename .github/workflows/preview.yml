@@ -26,12 +26,6 @@ jobs:
       CI: "true"
       TAYORI_PREVIEW_D1_DATABASE_ID: ${{ vars.TAYORI_PREVIEW_D1_DATABASE_ID }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      TAYORI_D1_USAGE_ENABLED: ${{ vars.TAYORI_D1_USAGE_ENABLED || 'false' }}
-      D1_STORAGE_LIMIT_BYTES: ${{ vars.D1_STORAGE_LIMIT_BYTES || '419430400' }}
-      D1_ROWS_READ_LIMIT: ${{ vars.D1_ROWS_READ_LIMIT || '3000000' }}
-      D1_ROWS_WRITTEN_LIMIT: ${{ vars.D1_ROWS_WRITTEN_LIMIT || '60000' }}
-      D1_WARNING_RATIO: ${{ vars.D1_WARNING_RATIO || '0.875' }}
-      D1_MAX_AGE_SECONDS: ${{ vars.D1_MAX_AGE_SECONDS || '7200' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -48,13 +42,6 @@ jobs:
           [[ "$TAYORI_PREVIEW_D1_DATABASE_ID" =~ ^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$ && "$TAYORI_PREVIEW_D1_DATABASE_ID" != '00000000-0000-0000-0000-000000000000' ]] || {
             echo 'Set preview variable TAYORI_PREVIEW_D1_DATABASE_ID'; exit 1;
           }
-      - name: Validate D1 monitoring secret
-        env:
-          D1_ANALYTICS_TOKEN: ${{ secrets.D1_ANALYTICS_TOKEN }}
-        run: |
-          if [[ "$TAYORI_D1_USAGE_ENABLED" == 'true' && -z "$D1_ANALYTICS_TOKEN" ]]; then
-            echo 'Set D1_ANALYTICS_TOKEN for D1 usage monitoring'; exit 1
-          fi
       - run: npm ci
       # npm's configured registry mirror omits Rolldown's Linux optional binding from package-lock.json.
       - run: npm install --no-save --ignore-scripts --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
@@ -83,22 +70,7 @@ jobs:
         working-directory: apps/collector
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          D1_ANALYTICS_TOKEN: ${{ secrets.D1_ANALYTICS_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ "$TAYORI_D1_USAGE_ENABLED" == 'true' ]]; then
-            TAYORI_COLLECTOR_SECRETS_FILE="$RUNNER_TEMP/tayori-collector-secrets.json"
-            export TAYORI_COLLECTOR_SECRETS_FILE
-            trap 'rm -f "$TAYORI_COLLECTOR_SECRETS_FILE"' EXIT
-            node --input-type=module -e '
-              import { writeFileSync } from "node:fs";
-              writeFileSync(process.env.TAYORI_COLLECTOR_SECRETS_FILE,
-                JSON.stringify({ D1_ANALYTICS_TOKEN: process.env.D1_ANALYTICS_TOKEN }), { mode: 0o600 });
-            '
-            npm exec -- cf deploy --prebuilt --mode preview --secrets-file "$TAYORI_COLLECTOR_SECRETS_FILE"
-          else
-            npm exec -- cf deploy --prebuilt --mode preview
-          fi
+        run: npm exec -- cf deploy --prebuilt --mode preview
       - name: Record preview result
         if: always()
         env:

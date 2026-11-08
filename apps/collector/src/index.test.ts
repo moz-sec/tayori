@@ -253,12 +253,12 @@ describe("hourly RSS collection", () => {
     ).toBeNull();
   });
 
-  it("enqueues a tick after storing the disabled usage configuration", async () => {
+  it("only enqueues a tick from scheduled, without doing database or HTTP work", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     await worker.scheduled({ scheduledTime: ROUND, cron: "0 * * * *", noRetry() {} }, env);
     expect(queued).toEqual([{ schemaVersion: 1, type: "tick", scheduledAt: ROUND }]);
-    expect(database.state.queries).toBe(1);
+    expect(database.state.queries).toBe(0);
     expect(fetcher).not.toHaveBeenCalled();
   });
 

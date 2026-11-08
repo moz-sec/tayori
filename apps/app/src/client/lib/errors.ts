@@ -2,6 +2,14 @@
 export function humanError(error: unknown): string {
   const code = error instanceof Error ? error.message : "UNKNOWN";
   const messages: Record<string, string> = {
+    D1_DAILY_READ_LIMIT:
+      "データベースの本日の読み取り上限に達しました。次の日本時間9時以降に再読み込みし、状態を確認してください。",
+    D1_DAILY_WRITE_LIMIT:
+      "データベースの本日の書き込み上限に達しました。次の日本時間9時以降に再読み込みし、状態を確認してください。",
+    D1_DATABASE_STORAGE_LIMIT:
+      "データベースの容量上限に達しました。Cloudflareの管理画面で容量を確認してください。",
+    D1_ACCOUNT_STORAGE_LIMIT:
+      "アカウントのデータベース容量上限に達しました。Cloudflareの管理画面で容量を確認してください。",
     ACCESS_NOT_CONFIGURED: "Cloudflare Access の設定が必要です。",
     AUTHENTICATION_REQUIRED: "認証が必要です。ページを再読み込みしてください。",
     ACCOUNT_NOT_ALLOWED: "このアカウントは利用を許可されていません。",

@@ -80,7 +80,10 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     403: jsonResponse(ErrorResponseSchema, "アクセスが許可されていません。"),
     413: jsonResponse(ErrorResponseSchema, "リクエストサイズが上限を超えています。"),
     415: jsonResponse(ErrorResponseSchema, "Content-Type は application/json が必要です。"),
-    503: jsonResponse(ErrorResponseSchema, "Cloudflare Access が設定されていません。"),
+    503: jsonResponse(
+      ErrorResponseSchema,
+      "Cloudflare Access が設定されていないか、D1の利用上限に達しました。",
+    ),
     500: jsonResponse(ErrorResponseSchema, "内部エラーです。"),
   };
 
@@ -512,26 +515,6 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
             lastTickAt: z.string().datetime().nullable(),
             activeSources: z.number(),
             failingSources: z.number(),
-            d1Usage: z.object({
-              state: z.enum(["disabled", "ok", "warning", "stopped"]),
-              reason: z.enum([
-                "disabled",
-                "within_limits",
-                "approaching_limit",
-                "limit_reached",
-                "unavailable",
-              ]),
-              metrics: z.array(z.enum(["storageBytes", "rowsRead", "rowsWritten"])),
-              snapshot: z
-                .object({
-                  observedAt: z.string().datetime(),
-                  dayUtc: z.string(),
-                  storageBytes: z.number(),
-                  rowsRead: z.number(),
-                  rowsWritten: z.number(),
-                })
-                .nullable(),
-            }),
           }),
         ),
         "定期処理と購読先の状況です。",
