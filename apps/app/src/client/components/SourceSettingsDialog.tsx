@@ -57,6 +57,7 @@ export function SourceSettingsDialog({ source, folders, onClose, onCommitted, on
       await request(`/sources/${encodeURIComponent(source.id)}`, archived
         ? { method: "DELETE" }
         : { method: "PATCH", body: JSON.stringify({
+          expectedGeneration: source.generation,
           ...(title.trim() !== source.title ? { title: title.trim() } : {}),
           ...(url.trim() !== source.url ? { url: url.trim() } : {}),
           folderId: folderId || null,

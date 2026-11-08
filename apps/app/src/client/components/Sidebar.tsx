@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { FolderDeleteControl } from "./FolderDeleteControl";
+import { FolderDialog as FolderDialogModal } from "./FolderDialog";
 import type { ImportRow } from "../lib/opml-import";
 import { LuBookmark, LuCircle, LuFolder, LuPause, LuPlay, LuPlus, LuSettings, LuStar, LuRss, LuChevronDown, LuChevronRight, LuArrowUp, LuArrowDown } from "react-icons/lu";
 import { flattenFolders, readCollapsedFolders, saveCollapsedFolders } from "../lib/folder-tree";
@@ -133,31 +133,15 @@ export function Sidebar(props: SidebarProps) {
       </aside>
     </div>
 
-    {folderDialog && <dialog open className="modal modal-open z-50" aria-labelledby="folder-dialog-title">
-      <div className="modal-box">
-        <h2 id="folder-dialog-title" className="mb-4 text-lg font-bold">{folderDialog.mode === "create" ? "New folder" : "Folder settings"}</h2>
-        <form onSubmit={onSaveFolder}>
-          <fieldset className="space-y-4" disabled={folderBusy}>
-          <label className="form-control w-full">
-            <span className="label-text mb-1">Folder name</span>
-            <input className="input input-bordered w-full" name="name" maxLength={100} defaultValue={folderDialog.mode === "edit" ? folderDialog.folder.name : ""} placeholder="Folder name" required autoFocus />
-          </label>
-          <label className="form-control w-full">
-            <span className="label-text mb-1">Parent folder</span>
-            <select className="select select-bordered w-full" name="parentId" defaultValue={folderDialog.mode === "create" ? folderDialog.parentId ?? "" : folderDialog.folder.parentId ?? ""}>
-              <option value="">Top level</option>
-              {flatFolders.filter((folder) => folderDialog.mode === "create" || folder.id !== folderDialog.folder.id).map((folder) => <option key={folder.id} value={folder.id}>{"　".repeat(folder.depth)}{folder.name}</option>)}
-            </select>
-          </label>
-          <div className="modal-action">
-            <button type="button" className="btn btn-ghost" onClick={onCloseFolderDialog}>Cancel</button>
-            <button type="submit" className="btn btn-primary">{folderDialog.mode === "create" ? "Create" : "Save"}</button>
-          </div>
-          </fieldset>
-        </form>
-        {folderDialog.mode === "edit" && <FolderDeleteControl key={folderDialog.folder.id} folder={folderDialog.folder} folders={folders} disabled={folderBusy} onDelete={onDeleteFolder} />}
-      </div>
-    </dialog>}
+    {folderDialog && <FolderDialogModal
+      key={folderDialog.mode === "edit" ? `edit:${folderDialog.folder.id}` : `create:${folderDialog.parentId ?? "root"}`}
+      dialog={folderDialog}
+      folders={folders}
+      busy={folderBusy}
+      onClose={onCloseFolderDialog}
+      onSave={onSaveFolder}
+      onDelete={onDeleteFolder}
+    />}
   </>;
 }
 
