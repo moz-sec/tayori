@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +23,17 @@ async function fixture(t, scenario) {
     preload,
     `
     import { appendFileSync } from 'node:fs';
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const write = fs.promises.writeFile;
+    fs.promises.writeFile = async (path, ...args) => {
+      if (String(path).endsWith('.sha256.partial')) {
+        if (process.env.SCENARIO === 'checksum-failure') throw new Error('disk full');
+        if (process.env.SCENARIO === 'checksum-crash') process.kill(process.pid, 'SIGKILL');
+      }
+      return write(path, ...args);
+    };
+    syncBuiltinESMExports();
     globalThis.fetch = async (url, options = {}) => {
       appendFileSync(process.env.TRACE, JSON.stringify({url, body: options.body, authorization: options.headers?.Authorization}) + '\\n');
       if (process.env.SCENARIO === 'hang') await new Promise(() => setInterval(() => {}, 1000));
@@ -55,7 +67,10 @@ test("exports, polls, stores privately and rotates only matching backup names", 
   for (let day = 1; day <= 8; day++) {
     const name = `d1-2020-01-${String(day).padStart(2, "0")}T03-00-00.000Z.sql`;
     await writeFile(join(f.dir, name), "old");
-    await writeFile(join(f.dir, `${name}.sha256`), "hash");
+    await writeFile(
+      join(f.dir, `${name}.sha256`),
+      `${createHash("sha256").update("old").digest("hex")}  ${name}\n`,
+    );
   }
   await writeFile(join(f.dir, "d1-2020-01-01Timportant.sql"), "keep");
   await exec(process.execPath, ["--import", f.preload, backup], { env: f.env });
@@ -96,6 +111,10 @@ test("failure preserves existing backups, does not expose secrets and stale stat
   assert.equal((await stat(join(f.dir, ".backup-lock.sqlite"))).mode & 0o777, 0o600);
   await assert.rejects(exec(process.execPath, [check], { env: f.env }));
   await writeFile(join(f.dir, "last-success"), `2020-01-01T00:00:00.000Z ${name}\n`);
+  await assert.rejects(exec(process.execPath, [check], { env: f.env }));
+  await writeFile(join(f.dir, "last-success"), `invalid ${name}\n`);
+  await assert.rejects(exec(process.execPath, [check], { env: f.env }));
+  await writeFile(join(f.dir, "last-success"), `2999-01-01T00:00:00.000Z ${name}\n`);
   await assert.rejects(exec(process.execPath, [check], { env: f.env }));
 });
 
@@ -209,3 +228,32 @@ test("exclusive lock survives contention and is released after SIGKILL", async (
     1,
   );
 });
+
+for (const scenario of ["checksum-failure", "checksum-crash"]) {
+  test(`${scenario} never displaces a valid backup`, async (t) => {
+    const f = await fixture(t, scenario);
+    const names = [];
+    for (let day = 1; day <= 7; day++) {
+      const name = `d1-2020-01-${String(day).padStart(2, "0")}T03-00-00.000Z.sql`;
+      names.push(name);
+      await writeFile(join(f.dir, name), "old");
+      await writeFile(
+        join(f.dir, `${name}.sha256`),
+        `${createHash("sha256").update("old").digest("hex")}  ${name}\n`,
+      );
+    }
+    await assert.rejects(exec(process.execPath, ["--import", f.preload, backup], { env: f.env }));
+    const incomplete = (await readdir(f.dir)).filter((name) => /^d1-202[1-9].*\.sql$/.test(name));
+    assert.equal(incomplete.length, 1);
+    for (const name of names) {
+      assert.equal(await readFile(join(f.dir, name), "utf8"), "old");
+      await stat(join(f.dir, `${name}.sha256`));
+    }
+    await exec(process.execPath, ["--import", f.preload, backup], {
+      env: { ...f.env, SCENARIO: "success" },
+    });
+    const files = await readdir(f.dir);
+    assert.equal(names.filter((name) => files.includes(name)).length, 6);
+    assert.ok(files.includes(incomplete[0]));
+  });
+}

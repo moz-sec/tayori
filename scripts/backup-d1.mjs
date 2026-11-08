@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import {
   chmod,
   mkdir,
   open,
   readdir,
+  readFile,
   realpath,
   rename,
   rm,
@@ -33,6 +34,7 @@ const keep = 7;
 const stamp = new Date().toISOString().replaceAll(":", "-");
 const name = `d1-${stamp}.sql`;
 const partial = join(dir, `.${name}.partial`);
+const checksumPartial = join(dir, `.${name}.sha256.partial`);
 const lockPath = join(dir, ".backup-lock.sqlite");
 let lock;
 let locked = false;
@@ -84,18 +86,32 @@ try {
     createWriteStream(partial, { flags: "wx", mode: 0o600 }),
   );
   if ((await stat(partial)).size === 0) throw new Error("Empty export");
-  const hash = createHash("sha256");
-  const { createReadStream } = await import("node:fs");
-  for await (const chunk of createReadStream(partial)) hash.update(chunk);
+  async function sha256(path) {
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    return hash.digest("hex");
+  }
+  const digest = await sha256(partial);
   await rename(partial, join(dir, name));
-  await writeFile(join(dir, `${name}.sha256`), `${hash.digest("hex")}  ${name}\n`, {
-    mode: 0o600,
-    flag: "wx",
-  });
-  const files = (await readdir(dir))
+  await writeFile(checksumPartial, `${digest}  ${name}\n`, { mode: 0o600, flag: "wx" });
+  await rename(checksumPartial, join(dir, `${name}.sha256`));
+  const candidates = (await readdir(dir))
     .filter((file) => /^d1-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.sql$/.test(file))
     .sort()
     .reverse();
+  const files = [];
+  for (const file of candidates) {
+    let checksum;
+    try {
+      checksum = await readFile(join(dir, `${file}.sha256`), "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    const match = /^([a-f0-9]{64})  (.+)\n$/.exec(checksum);
+    if (match && match[2] === file && (await sha256(join(dir, file))) === match[1])
+      files.push(file);
+  }
   for (const file of files.slice(keep)) {
     await rm(join(dir, file));
     await rm(join(dir, `${file}.sha256`), { force: true });
@@ -109,6 +125,9 @@ try {
   console.error("Backup failed; check the connection, permissions, lock and available disk space");
   process.exitCode = 1;
 } finally {
-  if (locked) await rm(partial, { force: true }).catch(() => {});
+  if (locked) {
+    await rm(partial, { force: true }).catch(() => {});
+    await rm(checksumPartial, { force: true }).catch(() => {});
+  }
   if (lock) lock.close();
 }
