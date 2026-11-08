@@ -100,7 +100,12 @@ Workers Paid では 30 日間保持される。詳細は [Time Travel](https://d
    復元後に表示される復元前の bookmark を記録する。
 3. 収集と Queue を停止したまま `scripts/restore-d1-safety.sql` を対象 DB に適用する。復元された未完了ジョブを失敗扱いにし、購読先の generation を更新する。
    復元時点以降のジョブは DB に含まれないため、generation の更新だけに頼らず旧 Queue の隔離を維持する。
-4. `PRAGMA integrity_check` と `PRAGMA foreign_key_check`、購読先や記事の件数、既読・保存状態、必要な migration を確認する。旧 Queue を隔離したまま、アプリと収集を段階的に再開する。復元時点と検証結果を記録する。
+4. `PRAGMA integrity_check` と `PRAGMA foreign_key_check`、購読先や記事の件数、既読・保存状態、必要な migration を確認する。
+5. 空の新しい Queue を作成し、メッセージの配信を一時停止する。旧 Queue は配信停止のまま残し、未処理の fetch と tick を新 Queue に移さない。
+   アプリへの書き込みと定期収集を停止したまま、`apps/app/cloudflare.config.ts` と `apps/collector/cloudflare.config.ts` の Queue 名を同じ新 Queue 名に変更する。
+   collector の `JOBS` binding と Queue trigger の両方が新 Queue を指すことを確認する。定期収集が切り替え途中に再開しないよう、collector の scheduled trigger を一時的に無効にする。
+6. 両 Worker をデプロイし、アプリと collector の producer、および collector の consumer が新 Queue を参照していることを確認する。
+   新 Queue の配信とアプリへの書き込みを再開する。collector の scheduled trigger を元に戻して再デプロイし、定期収集を再開する。新しいジョブが処理されることを確認し、復元時点と検証結果を記録する。
 
 7 日を超える長期保管が必要になった場合は、D1 の SQL を非公開の R2 バケットに定期退避する方法を検討する。[Cloudflare の Workflows による実装例](https://developers.cloudflare.com/workflows/examples/backup-d1/)を参照し、
 保持期間、アクセス制御、監視、費用、復元演習を検討する。R2 への自動退避は実装・設定していない。
