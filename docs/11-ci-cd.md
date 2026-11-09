@@ -2,7 +2,7 @@
 
 ## 今回の範囲
 
-プルリクエストでは CI を実行し、`main` への push では最新コミットをCloudflareプレビュー環境へ配備する。`vX.Y.Z`（例: `v0.1.0`）タグを push すると本番環境へリリースする。
+プルリクエストでは CI を実行し、`main` への対象ファイルを含む push ではCloudflareプレビュー環境へ配備する。`vX.Y.Z`（例: `v0.1.0`）タグを push すると本番環境へリリースする。
 どちらもGitHub Actionsから実行し、日常のローカルデプロイは行わない。
 
 `main` のappはCloudflare Workers Previewsとして `tayori-app` の下に配備し、Preview URLと本番Workerを分ける。D1は `tayori-preview-db` を使い、
@@ -67,7 +67,7 @@ Dependabot の通常のバージョン更新設定は削除する。Renovate App
   - 合格基準: npm ci、整形の確認、lint、型チェック、既存テスト、両Workerのビルドが成功
 
 - ワークフロー / ジョブ: Preview
-  - 条件: mainへのpush
+  - 条件: mainへの対象ファイルを含むpush（対象は `.github/workflows/preview.yml` を参照）
   - 合格基準: 型チェック、テスト、collectorのビルド後、プレビューD1 migration、app Previewと専用collector Workerの配備が成功
 
 - ワークフロー / ジョブ: Security / Dependency audit
@@ -82,7 +82,7 @@ Dependabot の通常のバージョン更新設定は削除する。Renovate App
   - 条件: vX.Y.Zタグのpush
   - 合格基準: main所属確認、Security、型チェック、テスト、ビルド成功後に本番へ反映
 
-Node.js 24、Ubuntu 24.04を使用する。インストールはルートのpackage-lock.jsonを使う。セキュリティ検査はテストの成否に依存せず実行する。
+Node.jsのバージョンは `.nvmrc`、実行環境は各ワークフローの設定を参照する。インストールはルートのpackage-lock.jsonを使う。セキュリティ検査はテストの成否に依存せず実行する。
 週次検査は変更がなくても新たな脆弱性情報・ルールを取り込むために行う。スケジュールはデフォルトブランチ上で実行され、開始時刻は遅延する場合がある。
 
 ## 権限と依存ツール
@@ -188,10 +188,10 @@ checkが残っていないことを次のpushで確認する。
 
 ### 5. 初回配備を確認
 
-この変更をGitHubへpushするとPreview workflowが起動する。成功後、Actionsログに出る `tayori-app` のPreview URLとCloudflare Accessの保護状態を確認する。
+対象ファイルの変更をmainへpushするとPreview workflowが起動する。成功後、Actionsログに出る `tayori-app` のPreview URLとCloudflare Accessの保護状態を確認する。
 ProductionはEnvironmentsとCloudflareリソースの準備後に、`main`上のコミットへ`vX.Y.Z`タグを付けて配備する。
 
-現在の自動テストはcollectorのフィード解析が中心。appはテスト未作成を許容しており、認証・API・D1・Queue・UIの動作保証はまだ含まない。Semgrepは一般的な静的解析であり、
+自動テストにはappとcollectorのテスト、およびCIで実行するブラウザーE2Eが含まれる。実際のCloudflare環境の動作を保証するものではない。Semgrepは一般的な静的解析であり、
 Hono/Workers固有の問題や秘密情報の網羅的検出を保証しない。検出時はログで内容を確認して修正し、誤検出の抑制には理由を記録する。
 
 ローカル環境で再現する場合は、次のコマンドを実行する。
@@ -209,7 +209,7 @@ semgrep scan --config p/default --error --strict --metrics=off --disable-version
 ## 本番Environmentの準備
 
 GitHub Settings → Environmentsで `production` を作成し、以下を登録する。Environmentのデプロイ対象は `v*` タグに限定する。
-Rulesetsでmainへの直接pushとリリースタグの変更・削除を制限し、タグ作成者を管理する。これらのGitHub側設定はまだ適用していない。手動承認を追加したい場合は、利用プランで対応するEnvironmentのrequired
+Rulesetsでmainへの直接pushとリリースタグの変更・削除を制限し、タグ作成者を管理する。これらのGitHub側設定の適用状況は未確認。手動承認を追加したい場合は、利用プランで対応するEnvironmentのrequired
 reviewersを設定する。
 
 - 種別: Variable
@@ -256,16 +256,3 @@ git push origin v0.1.0
 ```
 
 Securityの指摘が残っている間はリリースも停止する。npm audit と Semgrep はリリース時にも実行する。
-
-## 初回のローカル検証（2026-09-30）
-
-- actionlintで両ワークフローの構文検証に成功。
-- npm ci、型チェック、collectorの8テスト、両Workerのビルドに成功。appはテスト未作成。
-- npm auditはhigh 1件、moderate 4件で失敗。Cloudflare開発ツールのminiflare配下にあるundiciが対象で、監査結果は修正版なしと報告している。合格基準を緩めず、依存ツールの対応を別途確認する。
-- Semgrepのローカル実行は環境作成の権限制限と追加許可の見送りにより未検証。GitHub Actions上での実行も未確認。
-- CD追加後、3ワークフローの構文検証、型チェック、8テスト、両Workerのビルドに成功。タグ名とmain所属判定は一時Gitリポジトリで正常系・拒否系の6ケースを確認。本番の認証情報登録・タグpush・実デプロイは未実施。
-
-参考: [SemgrepのCI設定](https://semgrep.dev/docs/semgrep-ci/sample-ci-configs)、
-[setup-node](https://github.com/actions/setup-node)、
-[Dependabot alerts](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependabot-alerts)、
-[Renovate vulnerability alerts](https://docs.renovatebot.com/configuration-options/#vulnerabilityalerts)。

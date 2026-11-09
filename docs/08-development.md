@@ -1,7 +1,6 @@
 # 開発・検証計画
 
-本書では、初期実装と今後の検証手順を記録する。UI/API、RSS 収集、Access JWT の検証、OPML、D1 schema は実装済み。本番 Cloudflare リソースの作成、実際の購読先を使った試験、
-バックアップからの復元はまだ行っていない。
+本書では、初期実装と今後の検証手順を記録する。UI/API、RSS 収集、Access JWT の検証、OPML、D1 schema は実装済み。実環境での検証は本書のリリース手順に従って確認する。
 
 ## 1. 推奨技術
 
@@ -23,16 +22,19 @@ tayori/
 ## 2. 環境と設定
 
 - ローカルはVite plugin/WorkerdでWorkerを起動し、フィードパーサーはフィクスチャでテストする。D1・Queueの統合動作はまだ十分に検証していない。
-- 本番用と検証用では DB と Queue を分ける。ただし、無料枠の使用量は合算される。検証環境では通常 Cron を無効にする。
-- app binding: DB と静的アセット。collector binding: DB, JOBS。
+- 本番用と検証用では DB と Queue を分ける。ただし、無料枠の使用量は合算される。Preview collectorにも毎時Cronを設定している。
+- app binding: DB、JOBS と静的アセット。collector binding: DB、JOBS。
 - collectorに公開HTTP経路は設けない。scheduledからのみtick投入。
 - 本番認証は`ALLOWED_EMAIL`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`を秘密として設定。JWT・秘密はGitに保存しない。
-- ローカル認証代替は専用設定に限定。本番ビルド/設定検証で代替認証が有効ならデプロイを失敗させる。
+- ローカル認証代替はローカルホスト向けに限定する。実環境での拒否ケースは未確認。
 - SQL migration、Worker設定、lockfileをGit管理。Terraformは初期必須にしない。
 
 各 Worker の `cloudflare.config.ts` を Cloudflare 設定の唯一の実行元とする。npm workspaces では `cf build` が Vite plugin を見つけられないため、
 開発とビルドには Vite を使い、成果物は `cf deploy --prebuilt` でデプロイする。D1 マイグレーションや Queue などのリソース管理にも `cf` コマンドを使う。`cf` はベータ版のため、CLI
 や設定形式を更新するときは公式情報を確認する。現時点で `cf` が対応していないログの tail や単独の secret 更新が必要な場合に限り、Wrangler を補助的に使う。
+
+既存D1への収集設定導入には `migrations/0002_collection_schedule.sql` をApp・Collectorの更新前に適用する。失敗中の既存購読先は、その時点の `next_fetch_at` を待機期限として引き継ぐ。
+ローカルでは `npm run db:migrate:local`、対象環境では環境別のマイグレーション手順を使い、Previewと本番のDB IDを混在させない。設定が未保存または不正な場合は毎時間隔で動作する。
 
 ## 3. 実装順序
 
@@ -106,6 +108,7 @@ Issue #38では利用者がブラウザーから行う次の操作を確認す�
 
 Issue #21のAPI/DB結合テストはSQL制約、競合、不正入力、保持・原子性を受け持つ。
 関数の細かな境界条件は単体テストで扱い、E2Eに重複して追加しない。
+収集設定は、全マイグレーション適用後のSQLiteを使うテストでAPI保存・ロールバック・入力検証・時間境界・実行中の設定変更・再試行・重複tickを確認する。
 OPMLの階層・部分失敗は既存のAPI・関数テストで扱う。
 Preview/Productionの実認証・実収集・デプロイ確認はIssue #20の範囲。
 

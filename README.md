@@ -2,7 +2,7 @@
 
 読みたいサイトを自分の分類方法で整理できる、個人向けの RSS リーダーです。Feedly の無料プランで特に気になっていたフォルダ数の制限をなくし、フィードやフォルダを自分の使い方に合わせて管理できるアプリを目指しています。
 
-> **初期実装です。** 基本の購読・収集・閲覧フローを実装しました。Cloudflareアカウントへのリソース作成・本番設定・実購読先での負荷確認はまだ行っていません。
+> **初期実装です。** 基本の購読・収集・閲覧フローを実装しました。Preview 配備の成功は確認済みですが、本番設定や実購読先での負荷確認は未確認です。認証、監視、復元の実環境での検証状況も未確認です。
 
 ## 初期実装の機能
 
@@ -147,7 +147,7 @@ oxfmt による整形の確認、oxlint によるコードの検査、markdownli
 
 ## CI/CD
 
-PRでCI・セキュリティ検査を行い、mainへのpushでプレビュー、`v0.1.0`のようなリリースタグのpushで本番へデプロイします。GitHub
+PRでCI・セキュリティ検査を行い、対象ファイルを含むmainへのpushでプレビュー、`v0.1.0`のようなリリースタグのpushで本番へデプロイします。GitHub
 ActionsとCloudflareの初回セットアップは[CI/CD設計](docs/11-ci-cd.md)を参照してください。
 
 ## Cloudflare へのデプロイ
@@ -157,14 +157,6 @@ Cloudflare 上の D1 を使う場合は、作成時に発行された ID を環�
 
 CloudflareのリソースとGitHub Actionsを初回設定してから、GitHub Actions経由でデプロイします。ローカルからのデプロイは通常行いません。
 セットアップ手順は[CI/CD設計](docs/11-ci-cd.md)を参照してください。
-
-```sh
-cf auth login
-cf d1 create --name tayori-db
-cf queues create --queue-name tayori-jobs
-TAYORI_D1_DATABASE_ID="YOUR_D1_DATABASE_ID" npm run db:migrate:remote
-TAYORI_SECRETS_FILE=/安全な場所/app-secrets.env npm run deploy
-```
 
 `cf deploy`のdry runは各Workerのディレクトリで`npm exec cf -- deploy --prebuilt --dry-run`を実行します。
 公開ホスト名とAccess適用を決めるまで本番デプロイはしないでください。mainのappはCloudflare Workers Previewsで配備し、collectorはQueue consumerとCron
