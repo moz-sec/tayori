@@ -9,6 +9,7 @@ sequenceDiagram
     actor U as 本人
     participant B as ブラウザ
     participant A as Access
+    participant S as Static Assets
     participant W as Web Worker
     participant D as D1
     U->>B: Tayoriを開く
@@ -17,15 +18,14 @@ sequenceDiagram
         A-->>U: メールPINで本人認証
         U->>A: PIN入力
     end
-    A->>W: 認証情報付きリクエスト
+    A->>S: 静的アセットを要求
+    S-->>B: UI配信
+    B->>A: 記事一覧API
+    A->>W: 認証情報付きAPI
     W->>W: 署名・issuer・aud・期限・本人確認
     alt 無効 / 設定不足
         W-->>B: アクセス拒否
     else 有効
-        W-->>B: APIへのアクセスを許可
-        B->>A: 記事一覧API
-        A->>W: 認証情報付きAPI
-        W->>W: 再検証
         W->>D: 期限と保存条件で一覧取得
         D-->>W: 記事とcursor
         W-->>B: private, no-store JSON
@@ -87,7 +87,8 @@ CollectorのCronは毎時00分に起動する。間隔モードはUTC epochを�
 
 Collectorは処理完了時刻ではなく時間境界から次の予定を計算するため、Queue待ちによる遅延が次の間隔を延ばさない。予定は取得開始の目安であり、Queue待ちやRSS応答によって取得完了は遅れる。
 
-設定変更時、pending・sent・runningのジョブは取り消さず、一度完遂してから新しい予定へ移る。設定保存では追加ジョブを作らない。処理中に設定が変更された場合、完了したジョブは保存し直された次回予定を上書きしない。
+設定変更時、pending・sent・runningのジョブは取り消さず、一度完遂してから新しい予定へ移る。設定保存では追加ジョブを作らない。ジョブ開始後に設定値が変わった場合は、そのジョブの成功処理で次回予定を更新しない。
+ただし、ジョブ開始時の設定AをBに変更し、再び同じAを保存すると、値の照合では変更を区別できない。時刻境界をまたぐ保存要求と重なる場合、ジョブ完了時に保存済みの次回予定が後の境界へ進み、元の境界の定期収集が作成されないことがある。
 Collectorはジョブ作成時にも設定スナップショットをSQLで照合する。
 
 失敗時は段階的な待機とRetry-Afterを守り、定期収集の予定と失敗後の待機期限の遅い方を次回取得とする。待機期限は `sources.retry_not_before` に保存し、設定変更でも短縮しない。

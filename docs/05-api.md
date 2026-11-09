@@ -124,6 +124,13 @@
 
 `PUT /settings/collection-schedule` はモードにかかわらず次の4項目が必須。リクエストは4KBまでで、認証、同一Origin、JSON Content-Typeは共通契約に従う。
 
+- `mode`: `interval` または `daily`。
+- `interval_hours`: 1・2・3・6・12・24のいずれか。
+- `daily_hour_jst`: 0〜23の整数。
+- `timezone`: `Asia/Tokyo` 固定。
+
+現在のモードで使用しない項目にも同じ制約が適用される。
+
 ```json
 {
   "mode": "interval",

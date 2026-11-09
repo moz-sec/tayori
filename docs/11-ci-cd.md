@@ -71,11 +71,11 @@ Dependabot の通常のバージョン更新設定は削除する。Renovate App
   - 合格基準: 型チェック、テスト、collectorのビルド後、プレビューD1 migration、app Previewと専用collector Workerの配備が成功
 
 - ワークフロー / ジョブ: Security / Dependency audit
-  - 条件: 同上、リリースからの呼び出し、および毎週月曜09:23 JST
+  - 条件: main向けPR、手動、リリースからの呼び出し、および毎週月曜09:23 JST
   - 合格基準: 開発依存を含むnpm auditでhigh/criticalがない
 
 - ワークフロー / ジョブ: Security / Semgrep
-  - 条件: 同上、リリースからの呼び出し、および毎週月曜09:23 JST
+  - 条件: main向けPR、手動、リリースからの呼び出し、および毎週月曜09:23 JST
   - 合格基準: p/defaultの静的解析で検出がなく、解析エラーもない
 
 - ワークフロー / ジョブ: Release
@@ -135,14 +135,14 @@ npm依存の管理は引き続き`package-lock.json`で行う。
 
 ### 1. Cloudflareリソースを作成
 
-Cloudflareアカウントで `cf auth login` を済ませ、ルートでプレビューと本番それぞれのD1、Queueを作成する。表示されたD1 UUIDを控える。
+Cloudflareアカウントで `npm exec -- cf auth login` を済ませ、ルートでプレビューと本番それぞれのD1、Queueを作成する。表示されたD1 UUIDを控える。
 
 ```sh
-cf auth login
-cf d1 create --name tayori-preview-db
-cf queues create --queue-name tayori-preview-jobs
-cf d1 create --name tayori-db
-cf queues create --queue-name tayori-jobs
+npm exec -- cf auth login
+npm exec -- cf d1 create --name tayori-preview-db
+npm exec -- cf queues create --queue-name tayori-preview-jobs
+npm exec -- cf d1 create --name tayori-db
+npm exec -- cf queues create --queue-name tayori-jobs
 ```
 
 Queue名はcollector設定で参照する。Workersデプロイ時にbinding/consumerが自動設定されるが、Queue自体は先に作成しておく。
@@ -193,6 +193,7 @@ ProductionはEnvironmentsとCloudflareリソースの準備後に、`main`上の
 
 自動テストにはappとcollectorのテスト、およびCIで実行するブラウザーE2Eが含まれる。実際のCloudflare環境の動作を保証するものではない。Semgrepは一般的な静的解析であり、
 Hono/Workers固有の問題や秘密情報の網羅的検出を保証しない。検出時はログで内容を確認して修正し、誤検出の抑制には理由を記録する。
+ブラウザーE2Eのローカル実行方法は[開発・テスト計画](08-development.md#実ブラウザーe2e)を参照する。
 
 ローカル環境で再現する場合は、次のコマンドを実行する。
 

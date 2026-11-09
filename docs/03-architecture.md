@@ -40,6 +40,7 @@ Web UI と API は同じオリジンで提供する。
 Workers Static Assets を使い、Pages には配置しない。
 API はすべてのリクエストで Access JWT を検証する。
 workers.dev 上の静的アセット自体は Access で保護されない可能性があるため、公開前に Access で保護したカスタムホスト名を用意する。
+併せて workers.dev 経路を無効化するか保護し、Preview URLを含む直接アクセス可能な経路でも保護を確認する。
 
 ## 2. Cronの役割を限定
 
