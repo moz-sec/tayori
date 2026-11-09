@@ -103,7 +103,7 @@ main h1 {
   .tayori-main-content > main {
     padding-top: 4.75rem;
   }
-  #tayori-sidebar > .drawer-side > aside {
+  #tayori-sidebar > .tayori-sidebar-content > aside {
     padding-top: 4.75rem;
   }
 }
