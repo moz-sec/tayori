@@ -142,7 +142,7 @@ export function Sidebar(props: SidebarProps) {
 
   return (
     <>
-      <div className="drawer-side z-30">
+      <div className="tayori-sidebar-content">
         <aside className="tayori-sidebar flex min-h-full w-80 flex-col border-r border-base-300 bg-base-100 px-4 pb-6 pt-5">
           <div className="mb-6 flex shrink-0 items-center px-2 pt-10">
             <span className="text-xl font-semibold tracking-tight" translate="no">

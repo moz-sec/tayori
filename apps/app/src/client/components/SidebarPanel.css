@@ -27,23 +27,12 @@
 .tayori-sidebar-panel::backdrop {
   background: rgb(0 0 0 / 0.4);
 }
-.tayori-sidebar-panel > .drawer-side {
-  position: static;
-  display: block;
+.tayori-sidebar-panel > .tayori-sidebar-content {
   width: 100%;
-  height: auto;
-  visibility: visible;
-  opacity: 1;
-  pointer-events: auto;
-  overflow: visible;
 }
-.tayori-sidebar-panel > .drawer-side > aside {
+.tayori-sidebar-panel > .tayori-sidebar-content > aside {
   width: 100%;
   min-height: 100dvh;
-  translate: none;
-  transform: none;
-  transition: none;
-  will-change: auto;
 }
 .tayori-sidebar-close {
   position: absolute;
