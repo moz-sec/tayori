@@ -62,8 +62,6 @@ jobs:
             echo 'Set production variable TAYORI_D1_DATABASE_ID'; exit 1;
           }
       - run: npm ci
-      # npm's configured registry mirror omits Rolldown's Linux optional binding from package-lock.json.
-      - run: npm install --no-save --ignore-scripts --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
