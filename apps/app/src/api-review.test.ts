@@ -5,6 +5,30 @@ import { sqliteD1 } from "../../collector/src/test/sqlite-d1";
 afterEach(() => vi.restoreAllMocks());
 
 it.each([
+  ["GET", "/boards"],
+  ["POST", "/boards"],
+  ["PATCH", "/boards/board"],
+  ["DELETE", "/boards/board"],
+  ["PUT", "/boards/board/articles/article"],
+  ["DELETE", "/boards/board/articles/article"],
+])("returns 404 for removed board endpoint %s %s", async (method, path) => {
+  const db = sqliteD1();
+  try {
+    const response = await api.request(
+      `http://localhost/api/v1${path}`,
+      {
+        method,
+        headers: { Origin: "http://localhost", "Content-Type": "application/json" },
+      },
+      { DB: db.binding } as Env,
+    );
+    expect(response.status).toBe(404);
+  } finally {
+    db.sqlite.close();
+  }
+});
+
+it.each([
   [
     new Error("wrapper", { cause: new Error("D1_ERROR: SECRET SQL https://private.test") }),
     "d1_error",
