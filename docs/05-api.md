@@ -73,6 +73,14 @@
   - 入力・役割: 最終tick、active件数、失敗中件数
   - 成功: 200
 
+- Method / Path: GET /settings/collection-schedule
+  - 入力・役割: 共通収集設定と次回取得予定を取得
+  - 成功: 200
+
+- Method / Path: PUT /settings/collection-schedule
+  - 入力・役割: 共通収集設定を保存し、購読先の次回予定を再計算
+  - 成功: 200
+
 `scope` には `all`、`unread`、`read-later`、`starred` を指定します。フォルダを指定すると、その子孫にある購読先の記事も対象になります。`cursor` の順序キーは検証し、SQL
 に直接連結しません。
 
@@ -111,6 +119,32 @@
 - APIはCache-Control: private, no-store。ログにCookie・JWT・記事本文・秘密付きURLを残さない。
 
 大容量SQLバックアップや復元をHTTP APIに実装しない。運用CLIから実施する。
+
+## RSS収集設定
+
+`PUT /settings/collection-schedule` はモードにかかわらず次の4項目が必須。リクエストは4KBまでで、認証、同一Origin、JSON Content-Typeは共通契約に従う。
+
+- `mode`: `interval` または `daily`。
+- `interval_hours`: 1・2・3・6・12・24のいずれか。
+- `daily_hour_jst`: 0〜23の整数。
+- `timezone`: `Asia/Tokyo` 固定。
+
+現在のモードで使用しない項目にも同じ制約が適用される。
+
+```json
+{
+  "mode": "interval",
+  "interval_hours": 6,
+  "daily_hour_jst": 0,
+  "timezone": "Asia/Tokyo"
+}
+```
+
+日次モードは `mode: "daily"` とする。`GET` と `PUT` のレスポンスは `{ "data": { ...設定, "next_fetch_at": "ISO 8601 UTC または null" } }`。
+有効な購読先がない場合、次回予定はnull。不正入力は400で保存しない。
+
+設定JSONはD1の `app_state` の `collection_schedule` キーに保存する。設定の保存と全購読先の `next_fetch_at` の再計算は同じD1 batchで行い、どちらかが失敗すると両方ロールバックする。
+既存記事、記事キー、既読・お気に入り・あとで読むは変更しない。収集時刻と処理中ジョブへの適用は[定期収集の処理フロー](06-sequences.md#収集スケジュールの適用)を参照する。
 
 ## フォルダの表示順
 

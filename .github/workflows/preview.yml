@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/preview.yml"
+      - ".nvmrc"
+      - "package-lock.json"
       - "apps/app/**"
       - "apps/collector/**"
       - "packages/shared/**"
