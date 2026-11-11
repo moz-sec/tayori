@@ -53,10 +53,10 @@ describe("reader URL navigation", () => {
     expect(navigationHref(ALL_ARTICLES, "/?scope=all")).toBe("/");
   });
 
-  it("falls back for missing folders and archived feeds while retaining paused feeds", () => {
+  it("falls back for missing folders and archived feeds while retaining active feeds", () => {
     const folders = [{ id: "folder" }];
     const sources = [
-      { id: "paused", status: "paused" as const },
+      { id: "active", status: "active" as const },
       { id: "archived", status: "archived" as const },
     ];
     const folder = { ...ALL_ARTICLES, folderId: "folder" };
@@ -70,8 +70,8 @@ describe("reader URL navigation", () => {
     expect(validateNavigation({ ...ALL_ARTICLES, sourceId: "archived" }, folders, sources)).toEqual(
       ALL_ARTICLES,
     );
-    const paused = { ...ALL_ARTICLES, sourceId: "paused" };
-    expect(validateNavigation(paused, folders, sources)).toEqual(paused);
+    const active = { ...ALL_ARTICLES, sourceId: "active" };
+    expect(validateNavigation(active, folders, sources)).toEqual(active);
   });
 
   it("does not conflate IDs containing the old view-key separator", () => {

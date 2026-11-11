@@ -81,7 +81,7 @@ export function ArticleList({
         </div>
       )}
       {!initialLoading && articles.length > 0 && (
-        <div className="divide-y divide-base-300 overflow-hidden rounded-box border border-base-300 bg-base-100">
+        <div className="tayori-article-list bg-base-100">
           {articles.map((article) => (
             <ArticleCard
               key={article.id}
@@ -123,7 +123,9 @@ function ArticleCard({
   onUpdate: ArticleListProps["onUpdate"];
 }) {
   return (
-    <article className="card min-w-0 wrap-anywhere rounded-none bg-base-100">
+    <article
+      className={`tayori-article card min-w-0 wrap-anywhere rounded-none bg-base-100 ${article.read ? "is-read" : ""}`}
+    >
       <div className="card-body min-w-0 gap-3 p-4 sm:p-6">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/75">
           <label className="flex cursor-pointer items-center gap-2 text-base-content">
@@ -135,7 +137,7 @@ function ArticleCard({
               onChange={() => onToggleSelection(article.id)}
               aria-label={`「${article.title}」を選択`}
             />
-            <span>選択</span>
+            <span className="sr-only">選択</span>
           </label>
           <span className="min-w-0 max-w-full font-semibold text-primary">
             {article.sourceTitle}
@@ -211,9 +213,6 @@ function ArticleCard({
             />
             お気に入り
           </button>
-          {article.starred && (
-            <span className="text-xs text-base-content/75">お気に入り登録済み</span>
-          )}
           <span className="ml-auto text-xs text-base-content/75">
             保存期限 {formatDate(article.expiresAt)}
           </span>

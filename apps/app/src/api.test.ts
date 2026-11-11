@@ -431,7 +431,6 @@ describe("source unread counts", () => {
       database.sqlite.exec(`
         INSERT INTO sources(id, title, normalized_url, status, last_checked_at, last_success_at, next_fetch_at, last_error_code, consecutive_failures)
         VALUES ('active', 'Active', 'https://example.com/a', 'active', ${now - 60}, ${now - 3600}, ${now + 3600}, 'http_503', 2),
-               ('paused', 'Paused', 'https://example.com/b', 'paused', NULL, NULL, ${now}, NULL, 0),
                ('archived', 'Archived', 'https://example.com/c', 'archived', NULL, NULL, ${now}, NULL, 0),
                ('empty', 'Empty', 'https://example.com/d', 'active', NULL, NULL, ${now}, NULL, 0);
       `);
@@ -443,7 +442,6 @@ describe("source unread counts", () => {
         ["later", "active", now - 1, null, 0, 1],
         ["multi-saved", "active", now - 1, null, 1, 1],
         ["already-read", "active", now + 1, now - 60, 1, 1],
-        ["paused-article", "paused", now + 1, null, 0, 0],
         ["archived-article", "archived", now + 1, null, 0, 0],
       ] as const;
       for (const [id, source, expires, readAt, starred, later] of fixtures) {
@@ -474,12 +472,6 @@ describe("source unread counts", () => {
             nextFetchAt: new Date((now + 3600) * 1000).toISOString(),
             errorCode: "http_503",
             consecutiveFailures: 2,
-          }),
-          expect.objectContaining({
-            id: "paused",
-            unreadCount: 1,
-            lastCheckedAt: null,
-            lastSuccessAt: null,
           }),
           expect.objectContaining({ id: "archived", unreadCount: 1 }),
           expect.objectContaining({ id: "empty", unreadCount: 0 }),

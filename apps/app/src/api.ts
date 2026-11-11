@@ -8,7 +8,7 @@ import {
 import type { QueueMessage } from "@tayori/shared";
 import { classifyD1QuotaError, secondsUntilNextUtcDay } from "@tayori/shared/d1-errors";
 import { dispatchFetchJob } from "@tayori/shared/fetch-jobs";
-import { nextCollectionAt, loadCollectionSchedule } from "@tayori/shared/collection-schedule";
+import { loadCollectionSchedule } from "@tayori/shared/collection-schedule";
 import { collectionSettingsApi } from "./collection-settings-api";
 import { authenticate } from "./auth";
 import { registerApiOperations } from "./api-docs";
@@ -35,7 +35,7 @@ type SourceRow = {
   title_is_custom: number;
   site_url: string | null;
   normalized_url: string;
-  status: "active" | "paused" | "archived";
+  status: "active" | "archived";
   interval_minutes: number;
   next_fetch_at: number;
   retry_not_before: number | null;
@@ -332,15 +332,15 @@ api.patch("/sources/:id", async (c) => {
   if (expectedGeneration !== current.generation) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
   const folderId = body.folderId === undefined ? current.folder_id : nullableId(body.folderId);
   if (folderId) await requireRow(c.env.DB, "SELECT id FROM folders WHERE id = ?", folderId);
-  const status = body.status === undefined ? current.status : readSourceStatus(body.status);
-  if (status === "archived") throw new ApiError(400, "USE_ARCHIVE_ENDPOINT");
+  if (body.status !== undefined) throw new ApiError(400, "INVALID_SOURCE_STATUS");
+  if (current.status === "archived") throw new ApiError(400, "USE_ARCHIVE_ENDPOINT");
   const title = body.title === undefined ? current.title : readName(body.title);
   const titleIsCustom = body.title === undefined ? current.title_is_custom : 1;
   const url = body.url === undefined ? current.normalized_url : readFeedUrl(body.url);
   if (url !== current.normalized_url) {
     const now = unixNow();
-    const { schedule, storedValue } = await loadCollectionSchedule(c.env.DB);
-    const nextFetchAt = status === "active" ? now : nextCollectionAt(schedule, now);
+    const { storedValue } = await loadCollectionSchedule(c.env.DB);
+    const nextFetchAt = now;
     // Invalidate old deliveries together with the URL change so they cannot block the next poll.
     // Existing article keys belong to the source ID and remain valid across a URL correction.
     try {
@@ -354,7 +354,7 @@ api.patch("/sources/:id", async (c) => {
              AND COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?`,
         ).bind(
           folderId,
-          status,
+          current.status,
           title,
           titleIsCustom,
           url,
@@ -374,40 +374,12 @@ api.patch("/sources/:id", async (c) => {
       if (isNormalizedUrlConflict(error)) throw new ApiError(409, "SOURCE_ALREADY_EXISTS");
       throw error;
     }
-    if (status === "active")
-      await enqueueInitialFetch(c.env.DB, c.env.JOBS, id, current.generation + 1);
-  } else if (current.status === "paused" && status === "active") {
-    const now = unixNow();
-    const { schedule, storedValue } = await loadCollectionSchedule(c.env.DB);
-    const nextFetchAt = Math.max(nextCollectionAt(schedule, now), current.retry_not_before ?? 0);
-    // Resuming waits for a future schedule boundary and never clears a feed's retry deadline.
-    const [updated] = await c.env.DB.batch([
-      c.env.DB.prepare(
-        `UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?,
-           next_fetch_at = ?, generation = generation + 1 WHERE id = ? AND generation = ?
-           AND COALESCE((SELECT value FROM app_state WHERE key = 'collection_schedule'), '') = ?`,
-      ).bind(
-        folderId,
-        status,
-        title,
-        titleIsCustom,
-        nextFetchAt,
-        id,
-        expectedGeneration,
-        storedValue,
-      ),
-      c.env.DB.prepare(
-        `UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ?
-         WHERE source_id = ? AND generation <= ? AND status IN ('pending', 'sent', 'running')
-           AND changes() = 1`,
-      ).bind(now, id, current.generation),
-    ]);
-    if (!updated?.meta.changes) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
+    await enqueueInitialFetch(c.env.DB, c.env.JOBS, id, current.generation + 1);
   } else {
     const updated = await c.env.DB.prepare(
       "UPDATE sources SET folder_id = ?, status = ?, title = ?, title_is_custom = ?, generation = generation + 1 WHERE id = ? AND generation = ?",
     )
-      .bind(folderId, status, title, titleIsCustom, id, expectedGeneration)
+      .bind(folderId, current.status, title, titleIsCustom, id, expectedGeneration)
       .run();
     if (!updated.meta.changes) throw new ApiError(409, "SOURCE_VERSION_CONFLICT");
   }
@@ -430,6 +402,28 @@ api.delete("/sources/:id", async (c) => {
     if (!exists) throw new ApiError(404, "SOURCE_NOT_FOUND");
   }
   return c.body(null, 204);
+});
+
+api.post("/sources/:id/restore", async (c) => {
+  const id = c.req.param("id");
+  const now = unixNow();
+  const [updated] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE sources SET status = 'active', generation = generation + 1, next_fetch_at = ?,
+         retry_not_before = NULL, consecutive_failures = 0, last_error_code = NULL, last_error_at = NULL
+       WHERE id = ? AND status = 'archived'`,
+    ).bind(now, id),
+    c.env.DB.prepare(
+      `UPDATE fetch_jobs SET status = 'failed', lease_until = NULL, completed_at = ?
+       WHERE source_id = ? AND status IN ('pending', 'sent', 'running') AND changes() = 1`,
+    ).bind(now, id),
+  ]);
+  const source = await c.env.DB.prepare("SELECT * FROM sources WHERE id = ?")
+    .bind(id)
+    .first<SourceRow>();
+  if (!source) throw new ApiError(404, "SOURCE_NOT_FOUND");
+  if (updated?.meta.changes) await enqueueInitialFetch(c.env.DB, c.env.JOBS, id, source.generation);
+  return c.json({ data: sourceDto(source) });
 });
 
 api.get("/subscriptions.opml", async (c) => {
@@ -888,11 +882,6 @@ function nullableId(value: unknown): string | null {
 
 function optionalId(value: string | undefined): string | null {
   return value === undefined || value === "" ? null : readId(value);
-}
-
-function readSourceStatus(value: unknown): "active" | "paused" {
-  if (value !== "active" && value !== "paused") throw new ApiError(400, "INVALID_SOURCE_STATUS");
-  return value;
 }
 
 async function requireRow(

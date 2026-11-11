@@ -24,7 +24,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     title: z.string(),
     siteUrl: z.string().nullable(),
     url: z.string(),
-    status: z.enum(["active", "paused", "archived"]),
+    status: z.enum(["active", "archived"]),
     intervalMinutes: z.number(),
     nextFetchAt: z.string().datetime(),
     lastCheckedAt: z.string().datetime().nullable(),
@@ -308,7 +308,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     path: "/sources/{id}",
     summary: "購読先更新",
     description:
-      "URLを含む更新は編集開始時のgenerationをexpectedGenerationとして必ず指定します。不一致なら変更せず409を返します。URL変更時は旧URLの取得ジョブを無効化し、有効な購読先の新URLを取得キューに入れます。キュー投入に失敗した場合は定期収集で再試行します。一時停止中の購読先は取得しません。記事キー・既存記事・既読・保存状態は維持します。同じGUIDや記事URLのキーは引き続き重複排除され、配信元の変更でキーが変わる記事は新規記事となります。一時停止からの再開も共通の収集設定と失敗後の待機期限に従います。",
+      "URLを含む更新は編集開始時のgenerationをexpectedGenerationとして必ず指定します。不一致なら変更せず409を返します。URL変更時は旧URLの取得ジョブを無効化し、有効な購読先の新URLを取得キューに入れます。キュー投入に失敗した場合は定期収集で再試行します。記事キー・既存記事・既読・保存状態は維持します。同じGUIDや記事URLのキーは引き続き重複排除され、配信元の変更でキーが変わる記事は新規記事となります。",
     request: {
       params: idParams,
       body: z.object({
@@ -324,7 +324,6 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
           ),
         folderId: nullableIdSchema.optional(),
         title: z.string().max(100).optional(),
-        status: z.enum(["active", "paused"]).optional(),
       }),
     },
     responses: {
@@ -343,6 +342,18 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     request: { params: idParams },
     responses: {
       204: emptyResponse,
+      404: jsonResponse(ErrorResponseSchema, "購読先が見つかりません。"),
+    },
+  });
+  addOperation({
+    method: "post",
+    path: "/sources/{id}/restore",
+    summary: "購読先を復元",
+    description:
+      "購読解除済みの購読先を復元し、記事の取得を開始します。記事や既読状態は維持します。",
+    request: { params: idParams },
+    responses: {
+      200: jsonResponse(dataResponse(SourceSchema), "復元後の購読先です。"),
       404: jsonResponse(ErrorResponseSchema, "購読先が見つかりません。"),
     },
   });

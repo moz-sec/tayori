@@ -65,16 +65,10 @@ export function articleEmptyState({
       title: "未読の記事はありません",
       description: "新しい記事が届くと、ここに表示されます。",
     };
-  if (relevant.every((source) => source.status === "paused"))
-    return {
-      title: "表示できる記事はありません",
-      description:
-        "この範囲の購読先は一時停止中です。新しい記事を受け取るには、サイドバーで購読を再開してください。",
-    };
   if (relevant.some((source) => source.errorCode))
     return {
       title: "記事はまだありません",
-      description: "取得エラーのある購読先があります。サイドバーの「取得状況」を確認してください。",
+      description: "取得エラーのある購読先があります。購読先の設定で取得状況を確認してください。",
     };
   if (relevant.every((source) => !source.lastCheckedAt))
     return {

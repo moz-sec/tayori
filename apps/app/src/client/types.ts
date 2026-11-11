@@ -14,7 +14,7 @@ export interface Source {
   folderId: string | null;
   title: string;
   url: string;
-  status: "active" | "paused" | "archived";
+  status: "active" | "archived";
   unreadCount: number;
   lastCheckedAt: string | null;
   nextFetchAt: string;

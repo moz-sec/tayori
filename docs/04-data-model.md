@@ -63,8 +63,9 @@ IDはUUID等の不透明文字列、日時はUTCのUnix時刻（秒）に統一�
   - 主な列・制約: id, parent_id nullable, name, sort_order。循環禁止。親ごとの名前一意（ルートも正規化して制約）
 
 - テーブル: sources
-  - 主な列・制約: id, kind=rss, normalized_url UNIQUE, title, folder_id, status(active/paused/archived), interval_minutes,
+  - 主な列・制約: id, kind=rss, normalized_url UNIQUE, title, folder_id, status(active/archived), interval_minutes,
     next_fetch_at, last_checked_at, last_success_at, etag, last_modified, error_code, error_count, generation
+  - 既存の `CHECK` 制約に加え、トリガーで `active` と `archived` 以外の状態を拒否する。
 
 - テーブル: item_keys
   - 主な列・制約: id, source_id, key_hash, first_seen_at。UNIQUE(source_id,key_hash)。本文削除後も残す

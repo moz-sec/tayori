@@ -8,12 +8,12 @@ INSERT INTO folders (id, name, parent_id, sort_order) VALUES
   ('demo-workers', 'Workers', 'demo-cloud', 0)
 ON CONFLICT(id) DO NOTHING;
 
--- Paused sources allow UI checks without a running collector or external fetches.
-INSERT INTO sources (id, normalized_url, folder_id, title, site_url, status) VALUES
-  ('demo-cloudflare', 'https://tayori.invalid/tayori-demo/cloudflare.xml', 'demo-workers', 'Cloudflare（サンプル）', 'https://tayori.invalid/', 'paused'),
-  ('demo-cncf', 'https://tayori.invalid/tayori-demo/cncf.xml', 'demo-cloud', 'CNCF（サンプル）', 'https://tayori.invalid/', 'paused'),
-  ('demo-security-feed', 'https://tayori.invalid/tayori-demo/security.xml', 'demo-security', 'Security（サンプル）', 'https://tayori.invalid/', 'paused'),
-  ('demo-unclassified', 'https://tayori.invalid/tayori-demo/updates.xml', NULL, '更新情報（サンプル）', 'https://tayori.invalid/', 'paused')
+-- Schedule local demo sources far in the future to avoid attempts to fetch reserved URLs.
+INSERT INTO sources (id, normalized_url, folder_id, title, site_url, status, next_fetch_at) VALUES
+  ('demo-cloudflare', 'https://tayori.invalid/tayori-demo/cloudflare.xml', 'demo-workers', 'Cloudflare（サンプル）', 'https://tayori.invalid/', 'active', 4102444800),
+  ('demo-cncf', 'https://tayori.invalid/tayori-demo/cncf.xml', 'demo-cloud', 'CNCF（サンプル）', 'https://tayori.invalid/', 'active', 4102444800),
+  ('demo-security-feed', 'https://tayori.invalid/tayori-demo/security.xml', 'demo-security', 'Security（サンプル）', 'https://tayori.invalid/', 'active', 4102444800),
+  ('demo-unclassified', 'https://tayori.invalid/tayori-demo/updates.xml', NULL, '更新情報（サンプル）', 'https://tayori.invalid/', 'active', 4102444800)
 ON CONFLICT(id) DO UPDATE SET
   normalized_url = CASE
     WHEN sources.normalized_url = replace(excluded.normalized_url, 'tayori.invalid', 'example.com')

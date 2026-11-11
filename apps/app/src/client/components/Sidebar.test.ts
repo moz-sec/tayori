@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./Sidebar";
 import type { Source } from "../types";
 
@@ -33,63 +33,45 @@ function render(sources: Source[]) {
       onDeleteFolder: vi.fn(),
       onMoveFolder: vi.fn(),
       onOpenSourceDialog: vi.fn(),
-      importItems: null,
-      importSummary: "",
-      importRows: [],
-      busy: false,
+      onOpenAddSource: vi.fn(),
+      onOpenImportOpml: vi.fn(),
       onScopeChange: vi.fn(),
       onSelectFolder: vi.fn(),
       onSelectSource: vi.fn(),
       onOpenFolderDialog: vi.fn(),
       onCloseFolderDialog: vi.fn(),
       onSaveFolder: vi.fn(),
-      onCreateSource: vi.fn(),
-      onToggleSource: vi.fn(),
-      onImportFile: vi.fn(),
-      onImportOpml: vi.fn(),
     }),
   );
 }
+afterEach(() => vi.unstubAllGlobals());
 describe("feed diagnostics", () => {
   it("shows unread counts and initial state in both grouped and unclassified feeds", () => {
+    vi.stubGlobal("window", {
+      location: { href: "http://localhost/" },
+      localStorage: { getItem: () => '["folder"]' },
+    });
     const html = render([
       source,
       { ...source, id: "s2", title: "Grouped", folderId: "folder", unreadCount: 0 },
     ]);
     expect(html).toContain("未読7件");
     expect(html).toContain("未読0件");
-    expect(html.match(/初回取得の確認待ち/g)).toHaveLength(2);
-    expect(html).toContain("まだ確認していません");
-    expect(html).toContain("まだ成功していません");
+    expect(html).not.toContain("取得状況");
     expect(html).toContain("収集スケジューラー最終実行");
-    expect(html).toContain("各フィードの取得完了を示しません");
+    expect(html).not.toContain("未分類");
+    expect(html).toMatch(/購読先[\s\S]*<ul[^>]*>[\s\S]*Feedの購読設定[\s\S]*<\/ul>/);
   });
-  it("retains earlier success separately from the current failure and explains the code", () => {
-    const html = render([
-      {
-        ...source,
-        lastCheckedAt: "2026-11-01T11:30:00Z",
-        lastSuccessAt: "2026-11-01T10:00:00Z",
-        errorCode: "http_503",
-        consecutiveFailures: 3,
-      },
-    ]);
-    expect(html).toContain("最終確認（成功・失敗を含む）");
-    expect(html).toContain("最終成功（更新なしを含む）");
-    expect(html).toContain("サーバーでエラー");
-    expect(html).toContain("コード: http_503");
-    expect(html).toContain("3回");
-    expect(html).toContain("取得完了時刻ではありません");
+  it("keeps folders closed by default", () => {
+    const html = render([{ ...source, folderId: "folder", title: "Grouped" }]);
+    expect(html).toContain("Folderを展開");
+    expect(html).not.toContain("Grouped");
   });
-  it("does not present a paused feed stale target time as a schedule and hides archived feeds", () => {
-    const html = render([
-      { ...source, status: "paused", errorCode: "http_429", consecutiveFailures: 1 },
-      { ...source, id: "archived", title: "Hidden feed", status: "archived" },
-    ]);
-    expect(html).toContain("一時停止中（自動取得しません）");
-    expect(html).toContain("停止中のため対象外");
-    expect(html).not.toContain("Hidden feed");
-    expect(html).not.toContain("取得完了時刻ではありません");
-    expect(html).not.toContain("再試行します");
+  it("marks failing feeds in the sidebar", () => {
+    const html = render([{ ...source, errorCode: "http_503" }]);
+    expect(html).toContain('title="Feed（取得エラー）"');
+    expect(html).toContain('class="min-w-0 flex-1 truncate text-error"');
+    expect(html).toContain('class="sr-only">（取得エラー）');
+    expect(render([source])).not.toContain("取得エラー");
   });
 });

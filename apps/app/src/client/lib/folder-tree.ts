@@ -1,11 +1,11 @@
 import type { Folder } from "../types";
 
-const COLLAPSED_FOLDERS_KEY = "tayori:collapsed-folders:v1";
+const EXPANDED_FOLDERS_KEY = "tayori:expanded-folders:v1";
 
 /** Reads browser-local folder preferences, tolerating unavailable or malformed storage. */
-export function readCollapsedFolders(): Set<string> {
+export function readExpandedFolders(): Set<string> {
   try {
-    const value: unknown = JSON.parse(window.localStorage.getItem(COLLAPSED_FOLDERS_KEY) ?? "[]");
+    const value: unknown = JSON.parse(window.localStorage.getItem(EXPANDED_FOLDERS_KEY) ?? "[]");
     return new Set(
       Array.isArray(value)
         ? value.filter((id): id is string => typeof id === "string").slice(0, 10_000)
@@ -16,10 +16,10 @@ export function readCollapsedFolders(): Set<string> {
   }
 }
 
-/** Saves only collapsed IDs in this browser; unavailable storage does not block navigation. */
-export function saveCollapsedFolders(ids: Set<string>): void {
+/** Saves only expanded IDs in this browser; unavailable storage does not block navigation. */
+export function saveExpandedFolders(ids: Set<string>): void {
   try {
-    window.localStorage.setItem(COLLAPSED_FOLDERS_KEY, JSON.stringify([...ids].slice(0, 10_000)));
+    window.localStorage.setItem(EXPANDED_FOLDERS_KEY, JSON.stringify([...ids].slice(0, 10_000)));
   } catch {
     /* Browsers may deny storage or run out of space. */
   }

@@ -1,6 +1,9 @@
 import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { LuX } from "react-icons/lu";
 import { request } from "../lib/api-client";
 import { humanError } from "../lib/errors";
+import { formatDate } from "../lib/format";
+import { feedErrorMessage } from "../lib/feed-status";
 import type { Folder, Source } from "../types";
 
 interface SourceSettingsDialogProps {
@@ -114,10 +117,24 @@ export function SourceSettingsDialog({
         if (!pendingRef.current) dismiss();
       }}
     >
-      <div className="modal-box">
-        <h2 id="source-settings-title" className="mb-4 text-lg font-bold">
-          購読設定：{source.title}
-        </h2>
+      <div className="modal-box tayori-source-settings">
+        <div className="tayori-source-settings-header">
+          <h2 id="source-settings-title" className="text-lg font-bold">
+            {source.title}
+          </h2>
+          <button
+            className="btn btn-ghost btn-square btn-sm"
+            type="button"
+            disabled={pending}
+            aria-label="閉じる"
+            title="閉じる"
+            onClick={() => {
+              if (!pendingRef.current) dismiss();
+            }}
+          >
+            <LuX aria-hidden="true" />
+          </button>
+        </div>
         {error && (
           <p role="alert" className="alert alert-error mb-4">
             {error}
@@ -139,7 +156,7 @@ export function SourceSettingsDialog({
               />
             </label>
             <p id="source-url-help" className="text-sm text-base-content/70">
-              URLの変更後、有効な購読先は新しいURLの取得を開始します。一時停止中の場合は再開後に取得します。既存の記事・既読・保存状態は保持します。配信元の記事IDや記事URLが変わると、同じ内容でも新しい記事として登録される場合があります。
+              配信元の記事IDや記事URLが変わると、同じ内容でも新しい記事として登録される場合があります。
             </p>
             <label className="form-control w-full">
               <span className="label-text mb-1">表示名</span>
@@ -160,7 +177,7 @@ export function SourceSettingsDialog({
                 value={folderId}
                 onChange={(event) => setFolderId(event.currentTarget.value)}
               >
-                <option value="">未分類</option>
+                <option value="">フォルダなし（ルート）</option>
                 {folders.map((folder) => (
                   <option key={folder.id} value={folder.id}>
                     {folderPath(folder, folderById)}
@@ -173,13 +190,61 @@ export function SourceSettingsDialog({
             </button>
           </fieldset>
         </form>
+        <section className="mt-6 border-t border-base-300 pt-4 text-sm" aria-label="取得状況">
+          <details>
+            <summary
+              className={`cursor-pointer font-semibold ${source.errorCode ? "text-error" : ""}`}
+            >
+              取得状況{source.errorCode && "（取得エラー）"}
+            </summary>
+            <div className="mt-3">
+              <p>
+                {source.errorCode
+                  ? "取得エラー"
+                  : source.lastCheckedAt
+                    ? "定期収集が有効"
+                    : "初回取得の確認待ち"}
+              </p>
+              <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 break-words sm:grid-cols-[10rem_1fr]">
+                <dt>最終確認（成功・失敗を含む）</dt>
+                <dd>
+                  {source.lastCheckedAt ? formatDate(source.lastCheckedAt) : "まだ確認していません"}
+                </dd>
+                <dt>最終成功（更新なしを含む）</dt>
+                <dd>
+                  {source.lastSuccessAt ? formatDate(source.lastSuccessAt) : "まだ成功していません"}
+                </dd>
+                <dt>次回対象時刻</dt>
+                <dd>{formatDate(source.nextFetchAt)}</dd>
+                <dt>連続失敗</dt>
+                <dd>{source.consecutiveFailures}回</dd>
+                {source.errorCode && (
+                  <>
+                    <dt>取得エラー</dt>
+                    <dd className="text-error">
+                      {feedErrorMessage(source.errorCode)}
+                      <br />
+                      <span className="break-all">コード: {source.errorCode}</span>
+                    </dd>
+                  </>
+                )}
+              </dl>
+              {source.status === "active" && (
+                <p className="mt-3 text-base-content/70">
+                  次回対象時刻は取得完了時刻ではありません。毎時の収集処理・待機状況により遅れることがあります。
+                </p>
+              )}
+            </div>
+          </details>
+        </section>
         <section className="mt-6 border-t border-base-300 pt-4" aria-label="購読解除">
-          <p className="text-sm">購読を解除すると購読先一覧から外れ、以後のRSS収集を停止します。</p>
-          <p className="mt-2 text-sm">
-            既存の記事・既読・お気に入り・あとで読むの状態は残ります。通常の記事は保存期限で削除され、お気に入り・あとで読むの記事は保持されます。「すべての記事」などから引き続き閲覧できます。
-          </p>
           {confirmArchive ? (
             <div className="mt-3 space-y-3">
+              <p className="text-sm">
+                購読先一覧から外れ、今後の収集は停止します。既存の記事と既読・保存状態は残ります。
+                通常の記事は保存期限で削除されますが、お気に入り・あとで読むの記事は保持されます。
+                残った記事は「すべての記事」などから閲覧できます。
+              </p>
               <label className="flex items-start gap-2 text-sm">
                 <input
                   className="checkbox checkbox-sm"
@@ -227,18 +292,6 @@ export function SourceSettingsDialog({
             </button>
           )}
         </section>
-        <div className="modal-action">
-          <button
-            className="btn btn-ghost"
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              if (!pendingRef.current) dismiss();
-            }}
-          >
-            閉じる
-          </button>
-        </div>
       </div>
     </dialog>
   );

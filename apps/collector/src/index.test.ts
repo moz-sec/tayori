@@ -264,7 +264,6 @@ describe("hourly RSS collection", () => {
 
   it("collects all 50 feeds once per round and again next hour without schedule drift", async () => {
     for (let i = 0; i < 50; i++) source(`source-${String(i).padStart(2, "0")}`);
-    source("paused", "paused");
     source("archived", "archived");
     source("backoff", "active", ROUND / 1000 + 7_200);
     const fetcher = vi.fn(async () => new Response(feed(1)));

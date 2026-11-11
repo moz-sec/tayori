@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { flattenFolders, readCollapsedFolders, saveCollapsedFolders } from "./folder-tree";
+import { flattenFolders, readExpandedFolders, saveExpandedFolders } from "./folder-tree";
 import type { Folder } from "../types";
 const folders: Folder[] = [
   { id: "b", name: "B", parentId: null, sortOrder: 0, unreadCount: 0 },
@@ -24,7 +24,7 @@ describe("folder visibility and browser preferences", () => {
     ]);
     expect(flattenFolders(folders).map((folder) => folder.id)).toEqual(["b", "a", "x", "y"]);
   });
-  it("restores collapsed IDs on remount and safely ignores malformed or denied storage", () => {
+  it("restores expanded IDs on remount and safely ignores malformed or denied storage", () => {
     let stored = "";
     vi.stubGlobal("window", {
       localStorage: {
@@ -34,20 +34,21 @@ describe("folder visibility and browser preferences", () => {
         },
       },
     });
-    saveCollapsedFolders(new Set(["a", "x"]));
-    expect(readCollapsedFolders()).toEqual(new Set(["a", "x"]));
+    expect(readExpandedFolders()).toEqual(new Set());
+    saveExpandedFolders(new Set(["a", "x"]));
+    expect(readExpandedFolders()).toEqual(new Set(["a", "x"]));
     stored = '["a",7,null]';
-    expect(readCollapsedFolders()).toEqual(new Set(["a"]));
+    expect(readExpandedFolders()).toEqual(new Set(["a"]));
     stored = "{broken";
-    expect(readCollapsedFolders()).toEqual(new Set());
+    expect(readExpandedFolders()).toEqual(new Set());
     stored = "{}";
-    expect(readCollapsedFolders()).toEqual(new Set());
+    expect(readExpandedFolders()).toEqual(new Set());
     vi.stubGlobal("window", {
       get localStorage() {
         throw new Error("denied");
       },
     });
-    expect(readCollapsedFolders()).toEqual(new Set());
-    expect(() => saveCollapsedFolders(new Set(["a"]))).not.toThrow();
+    expect(readExpandedFolders()).toEqual(new Set());
+    expect(() => saveExpandedFolders(new Set(["a"]))).not.toThrow();
   });
 });

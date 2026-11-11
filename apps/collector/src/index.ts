@@ -27,7 +27,7 @@ interface SourceRow {
   etag: string | null;
   last_modified: string | null;
   generation: number;
-  status: "active" | "paused" | "archived";
+  status: "active" | "archived";
   consecutive_failures: number;
 }
 

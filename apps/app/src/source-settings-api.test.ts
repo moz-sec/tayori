@@ -109,6 +109,57 @@ describe("subscription management API", () => {
       db.sqlite.close();
     }
   });
+
+  it("restores a subscription, invalidates old jobs, and queues a new fetch without losing reading state", async () => {
+    const db = database();
+    const send = vi.fn().mockResolvedValue(undefined);
+    try {
+      db.sqlite
+        .exec(`UPDATE sources SET status = 'archived', generation = 2, retry_not_before = 9999999999,
+        last_error_code = 'http_503', consecutive_failures = 3 WHERE id = 'source';
+        INSERT INTO fetch_jobs(id, source_id, generation, status) VALUES ('old', 'source', 1, 'sent');`);
+      const env = { DB: db.binding, JOBS: { send } } as unknown as Env;
+      const response = await api.request(
+        "http://localhost/api/v1/sources/source/restore",
+        { method: "POST", headers },
+        env,
+      );
+      expect(response.status).toBe(200);
+      expect((await response.json()).data).toMatchObject({
+        id: "source",
+        status: "active",
+        generation: 3,
+        errorCode: null,
+      });
+      expect(
+        db.sqlite.prepare("SELECT status FROM fetch_jobs WHERE id = 'old'").get(),
+      ).toMatchObject({ status: "failed" });
+      expect(send).toHaveBeenCalledOnce();
+      expect(
+        db.sqlite
+          .prepare("SELECT read_at, starred, read_later FROM articles WHERE id = 'article'")
+          .get(),
+      ).toMatchObject({ read_at: 123, starred: 1, read_later: 1 });
+      const again = await api.request(
+        "http://localhost/api/v1/sources/source/restore",
+        { method: "POST", headers },
+        env,
+      );
+      expect(again.status).toBe(200);
+      expect(send).toHaveBeenCalledOnce();
+      expect(
+        (
+          await api.request(
+            "http://localhost/api/v1/sources/missing/restore",
+            { method: "POST", headers },
+            env,
+          )
+        ).status,
+      ).toBe(404);
+    } finally {
+      db.sqlite.close();
+    }
+  });
 });
 
 describe("subscription URL correction", () => {
@@ -474,19 +525,6 @@ describe("subscription URL correction", () => {
       expect(db.sqlite.prepare("SELECT status FROM fetch_jobs WHERE id = 'old-job'").get()).toEqual(
         { status: "failed" },
       );
-    } finally {
-      db.sqlite.close();
-    }
-  });
-
-  it("does not enqueue a paused subscription after a URL change", async () => {
-    const db = database();
-    const send = vi.fn();
-    try {
-      db.sqlite.exec("UPDATE sources SET status = 'paused'");
-      expect((await patch(db, { url: "https://example.com/new.xml" }, send)).status).toBe(200);
-      expect(send).not.toHaveBeenCalled();
-      expect(db.sqlite.prepare("SELECT count(*) AS n FROM fetch_jobs").get()).toEqual({ n: 0 });
     } finally {
       db.sqlite.close();
     }

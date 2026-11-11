@@ -4,11 +4,12 @@ import type { Folder } from "../types";
 
 interface SourceCreateFormProps {
   folders: Array<Folder & { depth: number }>;
+  onPendingChange?: (pending: boolean) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void> | void;
 }
 
 /** Keeps a failed subscription's input and error together, including for keyboard users. */
-export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
+export function SourceCreateForm({ folders, onSubmit, onPendingChange }: SourceCreateFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const submitting = useRef(false);
@@ -16,6 +17,7 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
   const stopFocusTrackingRef = useRef<(() => void) | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
+  const [message, setMessage] = useState("");
   const errorId = useId();
   const helpId = useId();
   const folderId = useId();
@@ -54,9 +56,12 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
     document.addEventListener("focusin", trackFocus);
     stopFocusTrackingRef.current = () => document.removeEventListener("focusin", trackFocus);
     setPending(true);
+    onPendingChange?.(true);
     setError(null);
+    setMessage("");
     try {
       await onSubmit(event);
+      setMessage("購読先を追加しました。");
       if (!focusMoved) restoreFocusRef.current = focusTarget;
     } catch (cause) {
       setError(formError(cause, "source"));
@@ -65,6 +70,7 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
       stopFocusTrackingRef.current = null;
       submitting.current = false;
       setPending(false);
+      onPendingChange?.(false);
     }
   };
   const errorMessage = (
@@ -78,7 +84,7 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
       ref={formRef}
       aria-label="購読先を追加"
       aria-busy={pending}
-      className="mt-3 rounded-box bg-base-200 p-3"
+      className="tayori-source-form mt-5"
       onSubmit={(event) => void submit(event)}
       onInput={(event) => {
         const target = event.target;
@@ -90,13 +96,17 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
           setError(null);
       }}
     >
-      <p className="mb-2 text-xs font-semibold">購読先を追加</p>
+      {message && (
+        <p role="status" className="mb-2 text-sm">
+          {message}
+        </p>
+      )}
       {error && !error.field && errorMessage}
-      <fieldset className="space-y-2" disabled={pending}>
-        <label className="block text-xs font-semibold">
+      <fieldset className="space-y-4" disabled={pending}>
+        <label className="block text-sm font-semibold">
           RSS / Atom URL
           <input
-            className="input input-bordered input-sm mt-1 w-full"
+            className="input input-bordered mt-1 w-full"
             name="url"
             type="url"
             maxLength={2048}
@@ -112,10 +122,10 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
           RSSまたはAtomのフィードURLを入力してください。
         </p>
         {error?.field === "url" && errorMessage}
-        <label className="block text-xs font-semibold">
+        <label className="block text-sm font-semibold">
           表示名（任意）
           <input
-            className="input input-bordered input-sm mt-1 w-full"
+            className="input input-bordered mt-1 w-full"
             name="title"
             maxLength={100}
             autoComplete="off"
@@ -126,16 +136,16 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
         </label>
         {error?.field === "title" && errorMessage}
         <div>
-          <label htmlFor={folderId} className="block text-xs font-semibold">
+          <label htmlFor={folderId} className="block text-sm font-semibold">
             所属フォルダ
           </label>
           <select
             id={folderId}
-            className="select select-bordered select-sm mt-1 w-full"
+            className="select select-bordered mt-1 w-full"
             name="folderId"
             defaultValue=""
           >
-            <option value="">未分類</option>
+            <option value="">フォルダなし（ルート）</option>
             {folders.map((folder) => (
               <option key={folder.id} value={folder.id}>
                 {"　".repeat(folder.depth)}
@@ -144,7 +154,7 @@ export function SourceCreateForm({ folders, onSubmit }: SourceCreateFormProps) {
             ))}
           </select>
         </div>
-        <button className="btn btn-primary btn-sm w-full" type="submit">
+        <button className="btn btn-primary" type="submit">
           {pending ? "購読先を追加中…" : "購読先を追加"}
         </button>
       </fieldset>

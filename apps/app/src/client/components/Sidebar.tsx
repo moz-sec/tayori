@@ -1,14 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { FolderDialog as FolderDialogModal } from "./FolderDialog";
-import { SourceCreateForm } from "./SourceCreateForm";
-import { humanError } from "../lib/errors";
-import type { ImportRow } from "../lib/opml-import";
 import {
   LuBookmark,
   LuCircle,
   LuFolder,
-  LuPause,
-  LuPlay,
   LuPlus,
   LuSettings,
   LuStar,
@@ -19,11 +14,10 @@ import {
   LuArrowDown,
   LuEllipsis,
 } from "react-icons/lu";
-import { flattenFolders, readCollapsedFolders, saveCollapsedFolders } from "../lib/folder-tree";
+import { flattenFolders, readExpandedFolders, saveExpandedFolders } from "../lib/folder-tree";
 import { formatDate } from "../lib/format";
 import { isPlainNavigation, navigationHref } from "../lib/navigation";
-import { feedErrorMessage } from "../lib/feed-status";
-import type { Folder, FolderDialog, ImportOutline, Scope, Source } from "../types";
+import type { Folder, FolderDialog, Scope, Source } from "../types";
 
 interface SidebarProps {
   scope: Scope;
@@ -35,10 +29,6 @@ interface SidebarProps {
   retentionDays: number;
   folderDialog: FolderDialog | null;
   folderBusy: boolean;
-  importItems: ImportOutline[] | null;
-  importSummary: string;
-  importRows: ImportRow[];
-  busy: boolean;
   onScopeChange: (scope: Scope) => void;
   onSelectFolder: (id: string) => void;
   onSelectSource: (id: string) => void;
@@ -47,12 +37,10 @@ interface SidebarProps {
   onCloseFolderDialog: () => void;
   onSaveFolder: (event: FormEvent<HTMLFormElement>) => Promise<void> | void;
   onDeleteFolder: (folder: Folder) => Promise<void>;
-  onCreateSource: (event: FormEvent<HTMLFormElement>) => Promise<void> | void;
-  onToggleSource: (source: Source) => void;
   onOpenSourceDialog: (source: Source) => void;
   onOpenCollectionSettings?: () => void;
-  onImportFile: (file: File | undefined) => Promise<void> | void;
-  onImportOpml: () => void;
+  onOpenAddSource: () => void;
+  onOpenImportOpml: () => void;
 }
 
 /** Renders the sidebar navigation, feed management controls, and OPML actions. */
@@ -66,10 +54,6 @@ export function Sidebar(props: SidebarProps) {
     status,
     retentionDays,
     folderDialog,
-    importItems,
-    importSummary,
-    importRows,
-    busy,
     onScopeChange,
     onSelectFolder,
     onSelectSource,
@@ -79,39 +63,38 @@ export function Sidebar(props: SidebarProps) {
     onSaveFolder,
     onDeleteFolder,
     folderBusy,
-    onCreateSource,
-    onToggleSource,
     onOpenSourceDialog,
-    onImportFile,
-    onImportOpml,
   } = props;
-  const [importError, setImportError] = useState("");
-  const [parsingImport, setParsingImport] = useState(false);
-  const parsingImportRef = useRef(false);
-  const importInputRef = useRef<HTMLInputElement>(null);
-  useLayoutEffect(() => {
-    if (importError && !parsingImport) importInputRef.current?.focus();
-  }, [importError, parsingImport]);
-  const selectImportFile = async (file: File | undefined) => {
-    if (!file || busy || parsingImportRef.current) return;
-    parsingImportRef.current = true;
-    setParsingImport(true);
-    setImportError("");
-    try {
-      await onImportFile(file);
-    } catch (cause) {
-      setImportError(humanError(cause));
-    } finally {
-      parsingImportRef.current = false;
-      setParsingImport(false);
-    }
-  };
-  const [collapsedFolders, setCollapsedFolders] = useState(readCollapsedFolders);
+  const [expandedFolders, setExpandedFolders] = useState(readExpandedFolders);
+  const [openMenu, setOpenMenu] = useState<"add" | "more" | null>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!openMenu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !addMenuRef.current?.contains(event.target))
+        setOpenMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpenMenu(null);
+      (openMenu === "add" ? addButtonRef : moreButtonRef).current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [openMenu]);
   const movingFolderRef = useRef(false);
   const [movingFolder, setMovingFolder] = useState<string | null>(null);
   useEffect(() => {
-    saveCollapsedFolders(collapsedFolders);
-  }, [collapsedFolders]);
+    saveExpandedFolders(expandedFolders);
+  }, [expandedFolders]);
   const [actionFolderId, setActionFolderId] = useState<string | null>(null);
   useLayoutEffect(() => {
     if (actionFolderId)
@@ -119,10 +102,12 @@ export function Sidebar(props: SidebarProps) {
         .getElementById(`folder-actions-${actionFolderId}`)
         ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [actionFolderId]);
-  const flatFolders = flattenFolders(folders);
+  const collapsedFolders = new Set(
+    folders.filter((folder) => !expandedFolders.has(folder.id)).map((folder) => folder.id),
+  );
   const visibleFolders = flattenFolders(folders, collapsedFolders);
   const toggleFolder = (id: string) =>
-    setCollapsedFolders((current) => {
+    setExpandedFolders((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -143,7 +128,7 @@ export function Sidebar(props: SidebarProps) {
   return (
     <>
       <div className="tayori-sidebar-content">
-        <aside className="tayori-sidebar flex min-h-full w-80 flex-col border-r border-base-300 bg-base-100 px-4 pb-6 pt-5">
+        <aside className="tayori-sidebar flex min-h-full w-80 flex-col border-r border-base-300 bg-base-100 px-4 pt-5">
           <div className="mb-6 flex shrink-0 items-center px-2 pt-10">
             <span className="text-xl font-semibold tracking-tight" translate="no">
               Tayori
@@ -176,19 +161,89 @@ export function Sidebar(props: SidebarProps) {
           <section className="mt-7">
             <div className="mb-2 flex items-center justify-between px-2">
               <h2 className="text-xs font-semibold text-base-content/55">購読先</h2>
-              <button
-                className="btn btn-ghost btn-xs"
-                aria-label="フォルダを作成"
-                title="フォルダを作成"
-                onClick={() => onOpenFolderDialog({ mode: "create", parentId: null })}
-              >
-                <LuPlus aria-hidden="true" />
-              </button>
+              <div ref={addMenuRef} className="tayori-add-menu">
+                <button
+                  ref={moreButtonRef}
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  aria-label="購読先のその他の操作"
+                  aria-expanded={openMenu === "more"}
+                  aria-controls="tayori-more-menu"
+                  title="購読先のその他の操作"
+                  onClick={() => setOpenMenu((open) => (open === "more" ? null : "more"))}
+                >
+                  <LuEllipsis aria-hidden="true" />
+                </button>
+                {openMenu === "more" && (
+                  <div
+                    id="tayori-more-menu"
+                    className="tayori-add-menu-options"
+                    aria-label="購読先の操作"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenMenu(null);
+                        moreButtonRef.current?.focus();
+                        props.onOpenImportOpml();
+                      }}
+                    >
+                      <LuRss aria-hidden="true" />
+                      OPMLをインポート
+                    </button>
+                  </div>
+                )}
+                <button
+                  ref={addButtonRef}
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  aria-label="購読先やフォルダを追加"
+                  aria-expanded={openMenu === "add"}
+                  aria-controls="tayori-add-menu"
+                  title="購読先やフォルダを追加"
+                  onClick={() => setOpenMenu((open) => (open === "add" ? null : "add"))}
+                >
+                  <LuPlus aria-hidden="true" />
+                </button>
+                {openMenu === "add" && (
+                  <div
+                    id="tayori-add-menu"
+                    className="tayori-add-menu-options"
+                    aria-label="追加する項目"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenMenu(null);
+                        addButtonRef.current?.focus();
+                        onOpenFolderDialog({ mode: "create", parentId: null });
+                      }}
+                    >
+                      <LuFolder aria-hidden="true" />
+                      フォルダを作成
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenMenu(null);
+                        addButtonRef.current?.focus();
+                        props.onOpenAddSource();
+                      }}
+                    >
+                      <LuRss aria-hidden="true" />
+                      購読先を追加
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
             <ul className="menu menu-sm max-h-52 w-full flex-nowrap overflow-y-auto p-0">
               {visibleFolders.map((folder) => (
-                <li key={folder.id} className="w-full">
-                  <div className="flex w-full min-w-0 flex-nowrap items-center gap-0.5">
+                <li key={folder.id} className="tayori-folder-entry w-full">
+                  <div
+                    className="tayori-folder-row flex w-full min-w-0 flex-nowrap items-center gap-0.5"
+                    style={{ marginInlineStart: `${Math.min(folder.depth * 16, 96)}px` }}
+                  >
                     <button
                       className="btn btn-square btn-ghost btn-xs shrink-0"
                       aria-expanded={!collapsedFolders.has(folder.id)}
@@ -211,7 +266,6 @@ export function Sidebar(props: SidebarProps) {
                         (folderId === folder.id ? "active " : "") +
                         "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"
                       }
-                      style={{ paddingInlineStart: `${12 + folder.depth * 14}px` }}
                       onClick={(event) => {
                         if (isPlainNavigation(event)) {
                           event.preventDefault();
@@ -276,15 +330,6 @@ export function Sidebar(props: SidebarProps) {
                       </button>
                       <button
                         className="btn btn-ghost btn-xs shrink-0"
-                        aria-label={`「${folder.name}」に子フォルダを作成`}
-                        title="子フォルダを作成"
-                        onClick={() => onOpenFolderDialog({ mode: "create", parentId: folder.id })}
-                      >
-                        <LuPlus aria-hidden="true" />
-                        <span>子フォルダを追加</span>
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-xs shrink-0"
                         aria-label={`「${folder.name}」のフォルダ設定`}
                         title="フォルダ設定"
                         onClick={() => onOpenFolderDialog({ mode: "edit", folder })}
@@ -303,28 +348,14 @@ export function Sidebar(props: SidebarProps) {
                         <SourceItem
                           key={source.id}
                           source={source}
+                          depth={folder.depth + 1}
                           selected={sourceId === source.id}
                           onSelect={onSelectSource}
-                          onToggle={onToggleSource}
                           onSettings={onOpenSourceDialog}
                         />
                       ))}
                 </li>
               ))}
-            </ul>
-            <p className="mt-1 px-2 text-xs text-base-content/55">
-              折りたたみはこのブラウザーに保存します。フォルダの操作メニューから表示順を変更できます。
-            </p>
-          </section>
-
-          <section className="mt-7">
-            <div className="mb-2 flex items-center justify-between px-2">
-              <h2 className="text-xs font-semibold text-base-content/55">未分類</h2>
-              <a className="link link-hover text-xs" href="/api/v1/subscriptions.opml">
-                OPML出力
-              </a>
-            </div>
-            <div className="menu menu-sm max-h-56 flex-nowrap overflow-y-auto p-0">
               {sources
                 .filter((source) => source.status !== "archived" && !source.folderId)
                 .map((source) => (
@@ -333,92 +364,14 @@ export function Sidebar(props: SidebarProps) {
                       source={source}
                       selected={sourceId === source.id}
                       onSelect={onSelectSource}
-                      onToggle={onToggleSource}
                       onSettings={onOpenSourceDialog}
                     />
                   </li>
                 ))}
-            </div>
-            <SourceCreateForm folders={flatFolders} onSubmit={onCreateSource} />
-            <div className="mt-3 space-y-2 rounded-box bg-base-200 p-3">
-              <label htmlFor="opml-file" className="block text-xs font-semibold">
-                OPMLファイルを読み込む
-              </label>
-              <input
-                ref={importInputRef}
-                id="opml-file"
-                name="opml"
-                className="file-input file-input-bordered file-input-xs w-full"
-                type="file"
-                disabled={busy || parsingImport}
-                accept=".opml,.xml,text/xml,application/xml"
-                aria-invalid={!!importError || undefined}
-                aria-describedby={importError ? "opml-file-error" : undefined}
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  void selectImportFile(file);
-                }}
-              />
-              {importError && (
-                <p id="opml-file-error" role="alert" className="text-sm text-error">
-                  {importError}
-                </p>
-              )}
-              {importSummary && (
-                <p role="status" className="text-xs text-base-content/70">
-                  {importSummary}
-                </p>
-              )}
-              {importRows.some((row) => row.status === "error" || row.status === "pending") && (
-                <ul
-                  className="max-h-56 space-y-2 overflow-y-auto text-xs"
-                  aria-label="OPML取り込みの未完了項目"
-                >
-                  {importRows.map((row, index) =>
-                    row.status === "error" || row.status === "pending" ? (
-                      <li key={index} className="break-all">
-                        <span className="font-semibold">
-                          {row.status === "error" ? "失敗" : "未処理"}
-                        </span>{" "}
-                        {row.outline.url}
-                        {row.error && <p>{row.error}</p>}
-                      </li>
-                    ) : null,
-                  )}
-                </ul>
-              )}
-              {!!importItems?.length && (
-                <>
-                  <p className="text-xs">対象 {importItems.length}件</p>
-                  <button
-                    className="btn btn-secondary btn-sm w-full"
-                    disabled={busy}
-                    onClick={onImportOpml}
-                  >
-                    {busy ? (
-                      <span className="loading loading-spinner loading-xs" />
-                    ) : importRows.some((row) => row.status !== "pending") ? (
-                      "失敗・未処理分を再試行"
-                    ) : (
-                      "確認して取り込む"
-                    )}
-                  </button>
-                </>
-              )}
-            </div>
+            </ul>
           </section>
 
           <div className="mt-auto pt-8 text-xs leading-5 text-base-content/55" aria-live="polite">
-            {props.onOpenCollectionSettings && (
-              <button
-                className="btn btn-ghost btn-sm mb-3 w-full justify-start text-base-content"
-                onClick={props.onOpenCollectionSettings}
-              >
-                <LuSettings aria-hidden="true" />
-                RSS収集設定
-              </button>
-            )}
             {status ? (
               <>
                 {`購読 ${status.activeSources}件 · 要確認 ${status.failingSources}件`}
@@ -433,10 +386,20 @@ export function Sidebar(props: SidebarProps) {
               "状態を取得中…"
             )}
             <br />
-            全体の実行時刻は各フィードの取得完了を示しません。
-            <br />
             記事は{retentionDays}日間保存
           </div>
+          {props.onOpenCollectionSettings && (
+            <div className="tayori-sidebar-footer">
+              <button
+                className="btn btn-square btn-ghost btn-sm text-base-content"
+                onClick={props.onOpenCollectionSettings}
+                aria-label="設定"
+                title="設定"
+              >
+                <LuSettings aria-hidden="true" />
+              </button>
+            </div>
+          )}
         </aside>
       </div>
 
@@ -462,19 +425,22 @@ export function Sidebar(props: SidebarProps) {
 /** Uses native details so feed diagnostics also work by keyboard and on touch screens. */
 function SourceItem({
   source,
+  depth = 0,
   selected,
   onSelect,
-  onToggle,
   onSettings,
 }: {
   source: Source;
+  depth?: number;
   selected: boolean;
   onSelect: (id: string) => void;
-  onToggle: (source: Source) => void;
   onSettings: (source: Source) => void;
 }) {
   return (
-    <div className="block! w-full min-w-0 p-1!">
+    <div
+      className="tayori-source-row block! min-w-0 p-1!"
+      style={{ marginInlineStart: `${Math.min(depth * 16, 96)}px` }}
+    >
       <div className="flex min-w-0 items-center gap-1">
         <a
           aria-current={selected ? "page" : undefined}
@@ -483,7 +449,7 @@ function SourceItem({
             typeof window === "undefined" ? "/" : window.location.href,
           )}
           className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`}
-          title={source.title}
+          title={source.errorCode ? `${source.title}（取得エラー）` : source.title}
           onClick={(event) => {
             if (isPlainNavigation(event)) {
               event.preventDefault();
@@ -491,23 +457,14 @@ function SourceItem({
             }
           }}
         >
-          <span className="min-w-0 flex-1 truncate">{source.title}</span>
+          <span className={`min-w-0 flex-1 truncate ${source.errorCode ? "text-error" : ""}`}>
+            {source.title}
+            {source.errorCode && <span className="sr-only">（取得エラー）</span>}
+          </span>
           <span className="badge badge-sm shrink-0" aria-label={`未読${source.unreadCount}件`}>
             {source.unreadCount}
           </span>
         </a>
-        <button
-          className="btn btn-ghost btn-xs shrink-0"
-          onClick={() => onToggle(source)}
-          aria-label={`${source.title}を${source.status === "active" ? "一時停止" : "再開"}`}
-          title={source.status === "active" ? "一時停止" : "再開"}
-        >
-          {source.status === "active" ? (
-            <LuPause aria-hidden="true" />
-          ) : (
-            <LuPlay aria-hidden="true" />
-          )}
-        </button>
         <button
           className="btn btn-square btn-ghost btn-xs shrink-0"
           aria-label={`${source.title}の購読設定`}
@@ -517,55 +474,6 @@ function SourceItem({
           <LuSettings aria-hidden="true" />
         </button>
       </div>
-      <details className="px-2 text-xs leading-5">
-        <summary
-          className={`cursor-pointer ${source.errorCode ? "text-error" : "text-base-content/60"}`}
-        >
-          {source.status === "paused"
-            ? "一時停止中"
-            : source.errorCode
-              ? "取得エラー"
-              : source.lastCheckedAt
-                ? "定期収集が有効"
-                : "初回取得の確認待ち"}{" "}
-          · 取得状況
-        </summary>
-        <dl className="mt-1 break-words text-base-content/70">
-          <dt>状態</dt>
-          <dd>
-            {source.status === "paused" ? "一時停止中（自動取得しません）" : "定期収集が有効"}
-          </dd>
-          <dt>最終確認（成功・失敗を含む）</dt>
-          <dd>
-            {source.lastCheckedAt ? formatDate(source.lastCheckedAt) : "まだ確認していません"}
-          </dd>
-          <dt>最終成功（更新なしを含む）</dt>
-          <dd>
-            {source.lastSuccessAt ? formatDate(source.lastSuccessAt) : "まだ成功していません"}
-          </dd>
-          <dt>次回対象時刻</dt>
-          <dd>
-            {source.status === "paused" ? "停止中のため対象外" : formatDate(source.nextFetchAt)}
-          </dd>
-          <dt>連続失敗</dt>
-          <dd>{source.consecutiveFailures}回</dd>
-          {source.errorCode && (
-            <>
-              <dt>取得エラー</dt>
-              <dd className="text-error">
-                {feedErrorMessage(source.errorCode)}
-                <br />
-                <span className="break-all">コード: {source.errorCode}</span>
-              </dd>
-            </>
-          )}
-        </dl>
-        {source.status === "active" && (
-          <p className="mt-1 text-base-content/60">
-            次回対象時刻は取得完了時刻ではありません。毎時の収集処理・待機状況により遅れることがあります。
-          </p>
-        )}
-      </details>
     </div>
   );
 }

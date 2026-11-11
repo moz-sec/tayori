@@ -1,147 +1,113 @@
-import { describe, expect, it, vi } from "vitest";
-import type { QueueMessage } from "@tayori/shared";
-import collector from "../../collector/src/index";
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { describe, expect, it } from "vitest";
 import { sqliteD1 } from "../../collector/src/test/sqlite-d1";
 import { api } from "./api";
 
-/** Seeds a subscription and saved article to verify management does not discard reading state. */
-function database() {
-  const db = sqliteD1();
-  db.sqlite.exec(`
-    INSERT INTO folders(id, name) VALUES ('folder', '移動先');
-    INSERT INTO sources(id, title, normalized_url) VALUES ('source', '元の名前', 'https://example.com/feed');
-    INSERT INTO item_keys(id, source_id, key_hash, first_seen_at) VALUES ('article', 'source', 'hash', unixepoch());
-    INSERT INTO articles(id, title, url, first_seen_at, expires_at, read_at, starred, read_later)
-      VALUES ('article', '記事', 'https://example.com/article', unixepoch(), unixepoch() + 3600, 123, 1, 1);
-  `);
+const migrations = new URL("../../../migrations/", import.meta.url);
+const migration = readFileSync(new URL("0005_remove_paused_sources.sql", migrations), "utf8");
+
+/** Builds the pre-migration schema so existing rows and foreign keys can be checked. */
+function oldDatabase() {
+  const db = new DatabaseSync(":memory:");
+  for (const name of [
+    "0001_initial.sql",
+    "0002_collection_schedule.sql",
+    "0004_remove_boards.sql",
+  ]) {
+    db.exec(readFileSync(new URL(name, migrations), "utf8"));
+  }
   return db;
 }
-const headers = { "Content-Type": "application/json", Origin: "http://localhost" };
 
-describe("subscription schedule on resume", () => {
-  function patch(db: ReturnType<typeof database>, body: unknown) {
-    return api.request(
-      "http://localhost/api/v1/sources/source",
-      {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify(body),
-      },
-      { DB: db.binding } as Env,
-    );
-  }
-
-  async function deliver(db: ReturnType<typeof database>, body: QueueMessage, send = vi.fn()) {
-    db.state.queries = 0;
-    await collector.queue(
-      {
-        queue: "test-jobs",
-        messages: [
-          {
-            id: crypto.randomUUID(),
-            timestamp: new Date(),
-            body,
-            attempts: 1,
-            ack() {},
-            retry() {},
-          },
-        ],
-        ackAll() {},
-        retryAll() {},
-        metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } },
-      },
-      { DB: db.binding, JOBS: { send } } as unknown as Env,
-    );
-  }
-
-  it.each([
-    { retryAt: "2026-11-06T03:22:00Z", expected: "2026-11-07T00:00:00.000Z" },
-    { retryAt: "2026-11-08T03:00:00Z", expected: "2026-11-08T03:00:00.000Z" },
-  ])(
-    "resumes after both the daily boundary and retry deadline: $retryAt",
-    async ({ retryAt: retryIso, expected }) => {
-      const db = database();
-      const at = Date.parse("2026-11-06T01:22:00Z");
-      const clock = vi.spyOn(Date, "now").mockReturnValue(at);
-      const send = vi.fn();
-      try {
-        db.sqlite
-          .prepare("INSERT INTO app_state(key, value) VALUES ('collection_schedule', ?)")
-          .run(
-            JSON.stringify({
-              mode: "daily",
-              interval_hours: 1,
-              daily_hour_jst: 9,
-              timezone: "Asia/Tokyo",
-            }),
-          );
-        const retryAt = Date.parse(retryIso) / 1000;
-        db.sqlite
-          .prepare("UPDATE sources SET status = 'paused', next_fetch_at = 0, retry_not_before = ?")
-          .run(retryAt);
-        const response = await patch(db, { status: "active" });
-        expect(response.status).toBe(200);
-        expect((await response.json()).data.nextFetchAt).toBe(expected);
-        expect(
-          db.sqlite
-            .prepare("SELECT status, retry_not_before FROM sources WHERE id = 'source'")
-            .get(),
-        ).toEqual({ status: "active", retry_not_before: retryAt });
-        await deliver(
-          db,
-          { schemaVersion: 1, type: "tick", scheduledAt: Date.parse("2026-11-06T01:00:00Z") },
-          send,
-        );
-        expect(send).not.toHaveBeenCalled();
-        expect(db.sqlite.prepare("SELECT count(*) AS n FROM fetch_jobs").get()).toEqual({ n: 0 });
-      } finally {
-        clock.mockRestore();
-        db.sqlite.close();
-      }
-    },
-  );
-
-  it("retains a newer collection schedule racing with resume", async () => {
-    const db = database();
-    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-06T01:22:00Z"));
-    const next = Date.parse("2026-11-07T00:00:00Z") / 1000;
-    let raced = false;
-    db.sqlite.exec("UPDATE sources SET status = 'paused'");
-    db.state.beforeQuery = (sql) => {
-      if (!raced && sql.includes("UPDATE sources SET folder_id")) {
-        raced = true;
-        // Reproduce a setting PUT after the schedule read and before the mutation batch.
-        db.sqlite
-          .prepare("INSERT INTO app_state(key, value) VALUES ('collection_schedule', ?)")
-          .run(
-            JSON.stringify({
-              mode: "daily",
-              interval_hours: 1,
-              daily_hour_jst: 9,
-              timezone: "Asia/Tokyo",
-            }),
-          );
-        db.sqlite.prepare("UPDATE sources SET next_fetch_at = ?").run(next);
-      }
-    };
+describe("removing the paused subscription state", () => {
+  it("retains existing articles and jobs while rejecting new paused states", () => {
+    const db = oldDatabase();
     try {
-      const response = await patch(db, { status: "active" });
-      expect(response.status).toBe(409);
-      expect(await response.json()).toMatchObject({ error: { code: "SOURCE_VERSION_CONFLICT" } });
-      expect(
-        db.sqlite
-          .prepare(
-            "SELECT normalized_url, next_fetch_at, generation, status FROM sources WHERE id = 'source'",
-          )
-          .get(),
-      ).toEqual({
-        normalized_url: "https://example.com/feed",
-        next_fetch_at: next,
-        generation: 1,
+      db.exec(`INSERT INTO sources(id, title, normalized_url) VALUES ('s', 'Feed', 'https://example.com/feed');
+        INSERT INTO item_keys(id, source_id, key_hash, first_seen_at) VALUES ('a', 's', 'key', 1);
+        INSERT INTO articles(id, title, url, first_seen_at, expires_at) VALUES ('a', 'Article', 'https://example.com/a', 1, 2);
+        INSERT INTO fetch_jobs(id, source_id, generation, status) VALUES ('j', 's', 1, 'pending');`);
+      db.exec(migration);
+      expect(db.prepare("SELECT COUNT(*) AS n FROM articles").get()).toEqual({ n: 1 });
+      expect(db.prepare("SELECT COUNT(*) AS n FROM fetch_jobs").get()).toEqual({ n: 1 });
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(() => db.exec("UPDATE sources SET status = 'paused' WHERE id = 's'")).toThrow();
+      expect(() =>
+        db.exec(
+          "INSERT INTO sources(id,title,normalized_url,status) VALUES ('p','P','https://example.com/p','paused')",
+        ),
+      ).toThrow();
+      db.exec("UPDATE sources SET status = 'archived' WHERE id = 's'");
+      expect(db.prepare("SELECT status FROM sources WHERE id = 's'").get()).toEqual({
+        status: "archived",
+      });
+    } finally {
+      db.close();
+    }
+  });
+  it("stops rather than silently changing any existing paused subscription", () => {
+    const db = oldDatabase();
+    try {
+      db.exec(
+        "INSERT INTO sources(id,title,normalized_url,status) VALUES ('p','P','https://example.com/p','paused')",
+      );
+      expect(() => db.exec(migration)).toThrow();
+      expect(db.prepare("SELECT status FROM sources WHERE id = 'p'").get()).toEqual({
         status: "paused",
       });
     } finally {
-      clock.mockRestore();
+      db.close();
+    }
+  });
+  it("converts only the known local demo feeds without scheduling an immediate fetch", () => {
+    const db = oldDatabase();
+    try {
+      db.exec(
+        "INSERT INTO sources(id,title,normalized_url,status,next_fetch_at) VALUES ('demo-cncf','Demo','https://tayori.invalid/tayori-demo/cncf.xml','paused',1)",
+      );
+      db.exec(migration);
+      expect(
+        db.prepare("SELECT status, next_fetch_at FROM sources WHERE id = 'demo-cncf'").get(),
+      ).toEqual({ status: "active", next_fetch_at: 4102444800 });
+    } finally {
+      db.close();
+    }
+  });
+  it("allows local fixtures to be seeded after the migration", () => {
+    const db = sqliteD1();
+    try {
+      db.sqlite.exec(
+        readFileSync(new URL("../../../scripts/seed-local.sql", import.meta.url), "utf8"),
+      );
+      expect(
+        db.sqlite.prepare("SELECT count(*) AS n FROM sources WHERE status = 'active'").get(),
+      ).toEqual({ n: 4 });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+  it("rejects attempts to change subscription status through the update API", async () => {
+    const db = sqliteD1();
+    try {
+      db.sqlite.exec(
+        "INSERT INTO sources(id,title,normalized_url) VALUES ('s','Feed','https://example.com/feed')",
+      );
+      const response = await api.request(
+        "http://localhost/api/v1/sources/s",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+          body: JSON.stringify({ status: "paused" }),
+        },
+        { DB: db.binding } as Env,
+      );
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe("INVALID_SOURCE_STATUS");
+      expect(db.sqlite.prepare("SELECT status FROM sources WHERE id = 's'").get()).toEqual({
+        status: "active",
+      });
+    } finally {
       db.sqlite.close();
     }
   });

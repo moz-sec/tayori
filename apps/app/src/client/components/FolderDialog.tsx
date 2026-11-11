@@ -1,7 +1,6 @@
 import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { FolderDeleteControl } from "./FolderDeleteControl";
 import { formError, type FormError } from "../lib/form-error";
-import { flattenFolders } from "../lib/folder-tree";
 import type { Folder, FolderDialog as FolderDialogState } from "../types";
 
 interface FolderDialogProps {
@@ -69,7 +68,11 @@ export function FolderDialog({
   useLayoutEffect(() => {
     if (!error || busy || pending) return;
     const field = error.field ? formRef.current?.elements.namedItem(error.field) : null;
-    if (field instanceof HTMLElement) field.focus();
+    if (
+      field instanceof HTMLElement &&
+      !(field instanceof HTMLInputElement && field.type === "hidden")
+    )
+      field.focus();
     else errorRef.current?.focus();
   }, [error, busy, pending]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -101,7 +104,6 @@ export function FolderDialog({
       {error?.message}
     </p>
   );
-  const flatFolders = flattenFolders(folders);
 
   return (
     <dialog
@@ -126,7 +128,7 @@ export function FolderDialog({
           {dialog.mode === "create" ? "フォルダを作成" : "フォルダ設定"}
         </h2>
         <form ref={formRef} onSubmit={(event) => void submit(event)} onInput={() => setError(null)}>
-          {error && !error.field && errorMessage}
+          {error && error.field !== "name" && errorMessage}
           <fieldset className="space-y-4" disabled={busy || pending}>
             <label className="form-control w-full">
               <span className="label-text mb-1">フォルダ名</span>
@@ -144,31 +146,11 @@ export function FolderDialog({
               />
             </label>
             {error?.field === "name" && errorMessage}
-            <label className="form-control w-full">
-              <span className="label-text mb-1">親フォルダ</span>
-              <select
-                aria-invalid={error?.field === "parentId" || undefined}
-                aria-describedby={error?.field === "parentId" ? "folder-form-error" : undefined}
-                className="select select-bordered w-full"
-                name="parentId"
-                defaultValue={
-                  dialog.mode === "create"
-                    ? (dialog.parentId ?? "")
-                    : (dialog.folder.parentId ?? "")
-                }
-              >
-                <option value="">最上位</option>
-                {flatFolders
-                  .filter((folder) => dialog.mode === "create" || folder.id !== dialog.folder.id)
-                  .map((folder) => (
-                    <option key={folder.id} value={folder.id}>
-                      {"　".repeat(folder.depth)}
-                      {folder.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {error?.field === "parentId" && errorMessage}
+            <input
+              type="hidden"
+              name="parentId"
+              value={dialog.mode === "edit" ? (dialog.folder.parentId ?? "") : ""}
+            />
             <div className="modal-action">
               <button type="button" className="btn btn-ghost" onClick={dismiss}>
                 キャンセル

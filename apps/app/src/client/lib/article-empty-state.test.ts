@@ -78,10 +78,7 @@ describe("article empty state", () => {
       }).title,
     ).toBe("記事の初回取得を待っています");
   });
-  it("provides different next steps for paused and failed feeds", () => {
-    expect(
-      articleEmptyState({ ...base, sources: [{ ...source, status: "paused" }] }).description,
-    ).toContain("再開");
+  it("provides next steps for failed feeds", () => {
     expect(
       articleEmptyState({ ...base, sources: [{ ...source, errorCode: "http_503" }] }).description,
     ).toContain("取得状況");

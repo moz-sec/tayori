@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { LuPanelLeftClose, LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
+import { LuPanelLeftOpen, LuRefreshCw } from "react-icons/lu";
 import { articleEmptyState } from "./lib/article-empty-state";
 import { ArticleList } from "./components/ArticleList";
 import { Sidebar } from "./components/Sidebar";
@@ -8,7 +8,7 @@ import { getMutationState, request } from "./lib/api-client";
 import { startForegroundSync } from "./lib/foreground-sync";
 import { loadArticleWindow } from "./lib/article-window";
 import { SourceSettingsDialog } from "./components/SourceSettingsDialog";
-import { CollectionSettingsDialog } from "./components/CollectionSettingsDialog";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { parseOpmlFile } from "./lib/opml";
 import { importOpmlRows, summarizeImport, type ImportRow } from "./lib/opml-import";
 import { humanError } from "./lib/errors";
@@ -59,6 +59,9 @@ export function App() {
   const [sources, setSources] = useState<Source[]>([]);
   const [sourceDialog, setSourceDialog] = useState<Source | null>(null);
   const [collectionSettingsOpen, setCollectionSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<"source" | "opml" | null>(
+    null,
+  );
   const dialogOpenRef = useRef(false);
   useLayoutEffect(() => {
     dialogOpenRef.current = !!folderDialog || !!sourceDialog || collectionSettingsOpen;
@@ -388,19 +391,6 @@ export function App() {
     await reload();
   };
 
-  /** Pauses or resumes feed polling. */
-  const toggleSource = async (source: Source) => {
-    try {
-      await request(`/sources/${encodeURIComponent(source.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: source.status === "active" ? "paused" : "active" }),
-      });
-      await reload();
-    } catch (error) {
-      tell(humanError(error), true);
-    }
-  };
-
   /** Parses a selected OPML file and stores its feeds for import confirmation. */
   const handleOpmlFile = async (file: File | undefined) => {
     if (!file || importingRef.current) return;
@@ -553,23 +543,24 @@ export function App() {
       className="tayori-shell bg-base-200 text-base-content"
     >
       <div className="tayori-main-content flex min-h-screen flex-col">
-        <button
-          ref={sidebarToggleRef}
-          className="absolute left-4 top-4 btn btn-square btn-ghost btn-sm bg-base-100/90"
-          onClick={() => setSidebarOpen((open) => !open)}
-          aria-label={sidebarOpen ? "サイドバーを隠す" : "サイドバーを開く"}
-          aria-expanded={sidebarOpen}
-          aria-controls="tayori-sidebar"
-          title={sidebarOpen ? "サイドバーを隠す" : "サイドバーを開く"}
-        >
-          {sidebarOpen ? (
-            <LuPanelLeftClose aria-hidden="true" />
-          ) : (
+        {!sidebarOpen && (
+          <button
+            ref={sidebarToggleRef}
+            className="absolute left-4 top-4 btn btn-square btn-ghost btn-sm bg-base-100/90"
+            onClick={() => {
+              setSidebarOpen(true);
+              requestAnimationFrame(() => document.getElementById("tayori-sidebar-close")?.focus());
+            }}
+            aria-label="サイドバーを開く"
+            aria-expanded={sidebarOpen}
+            aria-controls="tayori-sidebar"
+            title="サイドバーを開く"
+          >
             <LuPanelLeftOpen aria-hidden="true" />
-          )}
-        </button>
-        <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 sm:px-12 sm:py-14 lg:px-16">
-          <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          </button>
+        )}
+        <main className="tayori-reader mx-auto w-full max-w-4xl flex-1 px-6 py-12 sm:px-12 sm:py-14 lg:px-16">
+          <div className="tayori-reader-header mb-6 flex flex-wrap items-end justify-between gap-3">
             <div>
               <h1
                 ref={articleHeadingRef}
@@ -601,9 +592,7 @@ export function App() {
                   !!markReadResult?.remainingIds.length
                 }
               >
-                {markingRead
-                  ? "既読にしています…"
-                  : `選択した記事を既読（${selectedArticleIds.length}件）`}
+                {markingRead ? "既読にしています…" : `既読（${selectedArticleIds.length}件）`}
               </button>
               <button
                 className="btn btn-ghost btn-sm"
@@ -612,7 +601,7 @@ export function App() {
                   if (!markingReadRef.current) changeSelection([]);
                 }}
               >
-                選択を解除
+                解除
               </button>
             </div>
           </div>
@@ -701,10 +690,6 @@ export function App() {
           retentionDays={retentionDays}
           folderDialog={folderDialog}
           folderBusy={folderBusy}
-          importItems={importItems}
-          importSummary={importSummary}
-          importRows={importRows}
-          busy={busy}
           onScopeChange={(nextScope) => {
             navigate({ scope: nextScope, folderId: null, sourceId: null });
             finishNavigation();
@@ -726,16 +711,45 @@ export function App() {
           onSaveFolder={saveFolder}
           onMoveFolder={moveFolder}
           onDeleteFolder={deleteFolder}
-          onCreateSource={createSource}
-          onToggleSource={toggleSource}
           onOpenSourceDialog={setSourceDialog}
-          onOpenCollectionSettings={() => setCollectionSettingsOpen(true)}
-          onImportFile={handleOpmlFile}
-          onImportOpml={() => void importOpml()}
+          onOpenCollectionSettings={() => {
+            setSettingsInitialSection(null);
+            setCollectionSettingsOpen(true);
+          }}
+          onOpenAddSource={() => {
+            setSettingsInitialSection("source");
+            setCollectionSettingsOpen(true);
+          }}
+          onOpenImportOpml={() => {
+            setSettingsInitialSection("opml");
+            setCollectionSettingsOpen(true);
+          }}
         />
       </SidebarPanel>
       {collectionSettingsOpen && (
-        <CollectionSettingsDialog onClose={() => setCollectionSettingsOpen(false)} />
+        <SettingsDialog
+          initialSection={settingsInitialSection}
+          folders={folders}
+          sources={sources}
+          importItems={importItems}
+          importSummary={importSummary}
+          importRows={importRows}
+          busy={busy}
+          onClose={() => setCollectionSettingsOpen(false)}
+          onRestoreSource={async (id) => {
+            const { data } = await request<Page<Source>>(
+              `/sources/${encodeURIComponent(id)}/restore`,
+              { method: "POST" },
+            );
+            setSources((current) =>
+              current.map((source) => (source.id === id ? { ...source, ...data } : source)),
+            );
+            void latestReload.current();
+          }}
+          onCreateSource={createSource}
+          onImportFile={handleOpmlFile}
+          onImportOpml={() => void importOpml()}
+        />
       )}
       {sourceDialog && (
         <SourceSettingsDialog
