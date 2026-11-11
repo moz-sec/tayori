@@ -112,6 +112,7 @@ describe("subscription management API", () => {
 });
 
 describe("subscription URL correction", () => {
+  /** Sends a source update using the current generation unless a stale value is supplied. */
   function patch(
     db: ReturnType<typeof database>,
     body: unknown,
