@@ -139,7 +139,7 @@ export function SourceSettingsDialog({
               />
             </label>
             <p id="source-url-help" className="text-sm text-base-content/70">
-              URLの変更後は次回の定期収集を待ちます。既存の記事・既読・保存状態は保持します。配信元の記事IDや記事URLが変わると、同じ内容でも新しい記事として登録される場合があります。
+              URLの変更後、有効な購読先は新しいURLの取得を開始します。一時停止中の場合は再開後に取得します。既存の記事・既読・保存状態は保持します。配信元の記事IDや記事URLが変わると、同じ内容でも新しい記事として登録される場合があります。
             </p>
             <label className="form-control w-full">
               <span className="label-text mb-1">表示名</span>

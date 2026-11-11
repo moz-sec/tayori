@@ -112,7 +112,11 @@ describe("subscription management API", () => {
 });
 
 describe("subscription URL correction", () => {
-  function patch(db: ReturnType<typeof database>, body: unknown) {
+  function patch(
+    db: ReturnType<typeof database>,
+    body: unknown,
+    send = vi.fn().mockResolvedValue(undefined),
+  ) {
     return api.request(
       "http://localhost/api/v1/sources/source",
       {
@@ -125,7 +129,7 @@ describe("subscription URL correction", () => {
           ...(body as Record<string, unknown>),
         }),
       },
-      { DB: db.binding } as Env,
+      { DB: db.binding, JOBS: { send } } as unknown as Env,
     );
   }
 
@@ -178,7 +182,7 @@ describe("subscription URL correction", () => {
       expect(first.status).toBe(200);
       expect((await first.json()).data.generation).toBe(2);
       db.sqlite.exec(`UPDATE sources SET etag = 'new-etag', last_modified = 'new-modified';
-        INSERT INTO fetch_jobs(id, source_id, generation, status) VALUES ('new-job', 'source', 2, 'sent');`);
+        UPDATE fetch_jobs SET id = 'new-job' WHERE source_id = 'source' AND generation = 2;`);
       const stale = await patch(db, {
         url: "https://example.com/stale.xml",
         expectedGeneration: opened.generation,
@@ -314,7 +318,7 @@ describe("subscription URL correction", () => {
         lastCheckedAt: null,
         lastSuccessAt: null,
         consecutiveFailures: 0,
-        nextFetchAt: "2026-11-06T02:00:00.000Z",
+        nextFetchAt: "2026-11-06T01:22:00.000Z",
       });
       expect(
         db.sqlite
@@ -424,7 +428,7 @@ describe("subscription URL correction", () => {
     }
   });
 
-  it("uses the saved daily schedule after URL correction and clears the old URL's backoff", async () => {
+  it("queues immediately after URL correction and clears the old URL's backoff", async () => {
     const db = database();
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-06T01:22:00Z"));
     try {
@@ -439,12 +443,103 @@ describe("subscription URL correction", () => {
       db.sqlite.exec("UPDATE sources SET retry_not_before = 9999999999");
       const response = await patch(db, { url: "https://example.com/new.xml" });
       expect(response.status).toBe(200);
-      expect((await response.json()).data.nextFetchAt).toBe("2026-11-07T00:00:00.000Z");
+      expect((await response.json()).data.nextFetchAt).toBe("2026-11-06T01:22:00.000Z");
       expect(
         db.sqlite.prepare("SELECT retry_not_before FROM sources WHERE id = 'source'").get(),
       ).toEqual({ retry_not_before: null });
     } finally {
       clock.mockRestore();
+      db.sqlite.close();
+    }
+  });
+
+  it("queues the new generation and ignores the old job after a URL change", async () => {
+    const db = database();
+    const send = vi.fn().mockResolvedValue(undefined);
+    try {
+      oldJob(db);
+      expect((await patch(db, { url: "https://example.com/new.xml" }, send)).status).toBe(200);
+      const job = db.sqlite
+        .prepare(
+          "SELECT id, generation, status FROM fetch_jobs WHERE source_id = 'source' AND id != 'old-job'",
+        )
+        .get();
+      expect(job).toMatchObject({ generation: 2, status: "sent" });
+      expect(send).toHaveBeenCalledExactlyOnceWith({
+        schemaVersion: 1,
+        type: "fetch",
+        jobId: job!.id,
+      });
+      expect(db.sqlite.prepare("SELECT status FROM fetch_jobs WHERE id = 'old-job'").get()).toEqual(
+        { status: "failed" },
+      );
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
+  it("does not enqueue a paused subscription after a URL change", async () => {
+    const db = database();
+    const send = vi.fn();
+    try {
+      db.sqlite.exec("UPDATE sources SET status = 'paused'");
+      expect((await patch(db, { url: "https://example.com/new.xml" }, send)).status).toBe(200);
+      expect(send).not.toHaveBeenCalled();
+      expect(db.sqlite.prepare("SELECT count(*) AS n FROM fetch_jobs").get()).toEqual({ n: 0 });
+    } finally {
+      db.sqlite.close();
+    }
+  });
+
+  it("fetches the corrected URL and schedules the following regular collection", async () => {
+    const db = database();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-06T01:22:00Z"));
+    const send = vi.fn().mockResolvedValue(undefined);
+    const fetcher = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          '<rss version="2.0"><channel><title>New feed</title><item><guid>new</guid><title>New article</title><link>https://example.com/new-article</link></item></channel></rss>',
+          { status: 200 },
+        ),
+      );
+    try {
+      expect((await patch(db, { url: "https://example.com/new.xml" }, send)).status).toBe(200);
+      await deliver(db, send.mock.calls[0]![0]);
+      expect(fetcher).toHaveBeenCalledWith("https://example.com/new.xml", expect.anything());
+      expect(
+        db.sqlite.prepare("SELECT count(*) AS n FROM articles WHERE title = 'New article'").get(),
+      ).toEqual({ n: 1 });
+      expect(
+        db.sqlite.prepare("SELECT next_fetch_at FROM sources WHERE id = 'source'").get(),
+      ).toEqual({ next_fetch_at: Date.parse("2026-11-06T02:00:00Z") / 1000 });
+    } finally {
+      fetcher.mockRestore();
+      clock.mockRestore();
+      db.sqlite.close();
+    }
+  });
+
+  it("keeps the corrected URL and a recoverable pending job if queue delivery fails", async () => {
+    const db = database();
+    const send = vi.fn().mockRejectedValue(new Error("queue unavailable"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await patch(db, { url: "https://example.com/new.xml" }, send)).status).toBe(200);
+      expect(
+        db.sqlite
+          .prepare(
+            "SELECT normalized_url, next_fetch_at <= unixepoch() AS due FROM sources WHERE id = 'source'",
+          )
+          .get(),
+      ).toEqual({ normalized_url: "https://example.com/new.xml", due: 1 });
+      expect(
+        db.sqlite
+          .prepare("SELECT status, generation FROM fetch_jobs WHERE source_id = 'source'")
+          .get(),
+      ).toEqual({ status: "pending", generation: 2 });
+    } finally {
+      log.mockRestore();
       db.sqlite.close();
     }
   });
