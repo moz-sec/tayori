@@ -308,7 +308,7 @@ export function registerApiOperations(registry: OpenAPIRegistry) {
     path: "/sources/{id}",
     summary: "購読先更新",
     description:
-      "URLを含む更新は編集開始時のgenerationをexpectedGenerationとして必ず指定します。不一致なら変更せず409を返します。URL変更時は旧URLの取得ジョブを無効化し、次回の定期収集を待ちます。記事キー・既存記事・既読・保存状態は維持します。同じGUIDや記事URLのキーは引き続き重複排除され、配信元の変更でキーが変わる記事は新規記事となります。一時停止からの再開も共通の収集設定と失敗後の待機期限に従います。",
+      "URLを含む更新は編集開始時のgenerationをexpectedGenerationとして必ず指定します。不一致なら変更せず409を返します。URL変更時は旧URLの取得ジョブを無効化し、有効な購読先の新URLを取得キューに入れます。キュー投入に失敗した場合は定期収集で再試行します。一時停止中の購読先は取得しません。記事キー・既存記事・既読・保存状態は維持します。同じGUIDや記事URLのキーは引き続き重複排除され、配信元の変更でキーが変わる記事は新規記事となります。一時停止からの再開も共通の収集設定と失敗後の待機期限に従います。",
     request: {
       params: idParams,
       body: z.object({

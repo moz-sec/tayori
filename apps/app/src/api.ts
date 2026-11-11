@@ -340,7 +340,7 @@ api.patch("/sources/:id", async (c) => {
   if (url !== current.normalized_url) {
     const now = unixNow();
     const { schedule, storedValue } = await loadCollectionSchedule(c.env.DB);
-    const nextFetchAt = nextCollectionAt(schedule, now);
+    const nextFetchAt = status === "active" ? now : nextCollectionAt(schedule, now);
     // Invalidate old deliveries together with the URL change so they cannot block the next poll.
     // Existing article keys belong to the source ID and remain valid across a URL correction.
     try {
@@ -374,6 +374,8 @@ api.patch("/sources/:id", async (c) => {
       if (isNormalizedUrlConflict(error)) throw new ApiError(409, "SOURCE_ALREADY_EXISTS");
       throw error;
     }
+    if (status === "active")
+      await enqueueInitialFetch(c.env.DB, c.env.JOBS, id, current.generation + 1);
   } else if (current.status === "paused" && status === "active") {
     const now = unixNow();
     const { schedule, storedValue } = await loadCollectionSchedule(c.env.DB);
