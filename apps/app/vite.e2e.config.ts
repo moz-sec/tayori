@@ -7,10 +7,17 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [
     cloudflare({
-      config: {
-        entrypoint: fileURLToPath(new URL("./e2e/worker.ts", import.meta.url)),
-        assets: { notFoundHandling: "single-page-application", runWorkerFirst: ["/__e2e/*"] },
-      },
+      config: (config) => ({
+        ...config,
+        worker: {
+          ...config.worker,
+          entrypoint: fileURLToPath(new URL("./e2e/worker.ts", import.meta.url)),
+          assets: {
+            notFoundHandling: "single-page-application",
+            runWorkerFirst: ["/__e2e/*", "/api/*"],
+          },
+        },
+      }),
       persistState: false,
       remoteBindings: false,
       inspectorPort: false,

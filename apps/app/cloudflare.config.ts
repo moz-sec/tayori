@@ -22,7 +22,17 @@ export default defineConfig(({ isPreview, mode }) => {
               logs: { enabled: true, headSamplingRate: 1 },
             },
           }
-        : {}),
+        : {
+            domains: [{ hostname: "tayori.moz-sec.com", production: true, previews: true }],
+            workersDev: false,
+            previewUrls: false,
+            observability: {
+              enabled: false,
+              issues: { enabled: false },
+              logs: { enabled: true },
+              traces: { enabled: true },
+            },
+          }),
       assets: {
         notFoundHandling: "single-page-application",
         // The frontend is served publicly from assets; API requests run through the Worker.

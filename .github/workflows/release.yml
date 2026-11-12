@@ -88,8 +88,8 @@ jobs:
               { mode: 0o600 });
           '
           npm run db:migrate:remote
-          npm exec --workspace @tayori/app -- cf deploy --prebuilt --secrets-file "$TAYORI_SECRETS_FILE" --tag "$RELEASE_TAG"
-          npm exec --workspace @tayori/collector -- cf deploy --prebuilt --tag "$RELEASE_TAG"
+          npm exec --workspace @tayori/app -- cf deploy --prebuilt --force --secrets-file "$TAYORI_SECRETS_FILE" --tag "$RELEASE_TAG"
+          npm exec --workspace @tayori/collector -- cf deploy --prebuilt --force --tag "$RELEASE_TAG"
       - name: Record release result
         if: always()
         env:
