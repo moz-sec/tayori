@@ -366,7 +366,27 @@ export function App() {
       await latestReload.current();
     } catch (error) {
       await latestReload.current();
-      tell(humanError(error), true);
+      throw error;
+    } finally {
+      folderMutationRef.current = false;
+      setFolderBusy(false);
+    }
+  };
+
+  const relocateItem = async (kind: "folder" | "source", id: string, parentId: string | null) => {
+    if (folderMutationRef.current) throw new Error("FOLDER_BUSY");
+    folderMutationRef.current = true;
+    setFolderBusy(true);
+    try {
+      await request(`/${kind === "folder" ? "folders" : "sources"}/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(kind === "folder" ? { parentId } : { folderId: parentId }),
+      });
+      await latestReload.current();
+      tell("移動しました");
+    } catch (error) {
+      await latestReload.current();
+      throw error;
     } finally {
       folderMutationRef.current = false;
       setFolderBusy(false);
@@ -710,6 +730,7 @@ export function App() {
           }}
           onSaveFolder={saveFolder}
           onMoveFolder={moveFolder}
+          onRelocateItem={relocateItem}
           onDeleteFolder={deleteFolder}
           onOpenSourceDialog={setSourceDialog}
           onOpenCollectionSettings={() => {

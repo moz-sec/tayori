@@ -32,6 +32,7 @@ function render(sources: Source[]) {
       folderBusy: false,
       onDeleteFolder: vi.fn(),
       onMoveFolder: vi.fn(),
+      onRelocateItem: vi.fn(),
       onOpenSourceDialog: vi.fn(),
       onOpenAddSource: vi.fn(),
       onOpenImportOpml: vi.fn(),

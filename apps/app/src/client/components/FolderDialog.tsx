@@ -11,7 +11,6 @@ interface FolderDialogProps {
   onClose: () => void;
   onSave: (event: FormEvent<HTMLFormElement>) => Promise<void> | void;
   onDelete: (folder: Folder) => Promise<void>;
-  onMove: (id: string, direction: "up" | "down") => Promise<void>;
   onFallbackFocus?: () => void;
 }
 
@@ -23,7 +22,6 @@ export function FolderDialog({
   onClose,
   onSave,
   onDelete,
-  onMove,
   onFallbackFocus,
 }: FolderDialogProps) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -184,29 +182,6 @@ export function FolderDialog({
             </div>
           </fieldset>
         </form>
-        {dialog.mode === "edit" && (
-          <div className="mt-6 flex gap-2" aria-label="フォルダの並べ替え" role="group">
-            {(["up", "down"] as const).map((direction) => {
-              const siblings = folders.filter(
-                (folder) => folder.parentId === dialog.folder.parentId,
-              );
-              const boundary = direction === "up" ? siblings[0] : siblings.at(-1);
-              const label = direction === "up" ? "上へ移動" : "下へ移動";
-              return (
-                <button
-                  key={direction}
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  aria-label={`${dialog.folder.name}を${label}`}
-                  disabled={busy || pending || boundary?.id === dialog.folder.id}
-                  onClick={() => void onMove(dialog.folder.id, direction)}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        )}
         {dialog.mode === "edit" && (
           <FolderDeleteControl
             key={dialog.folder.id}
