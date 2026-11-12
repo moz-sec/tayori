@@ -38,7 +38,7 @@
     "cf": "^1.0.0-beta.29",
     "daisyui": "^5.7.47",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^8.1.4",
     "vitest": "^5.0.2"
   }
