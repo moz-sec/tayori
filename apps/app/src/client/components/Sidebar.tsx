@@ -1,4 +1,17 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+  type MouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { normalizeFeedUrl } from "@tayori/shared";
+import { MoveItemDialog, type MoveItem } from "./MoveItemDialog";
+import { humanError } from "../lib/errors";
 import { FolderDialog as FolderDialogModal } from "./FolderDialog";
 import {
   LuBookmark,
@@ -10,8 +23,6 @@ import {
   LuRss,
   LuChevronDown,
   LuChevronRight,
-  LuArrowUp,
-  LuArrowDown,
   LuEllipsis,
 } from "react-icons/lu";
 import { flattenFolders, readExpandedFolders, saveExpandedFolders } from "../lib/folder-tree";
@@ -33,6 +44,7 @@ interface SidebarProps {
   onSelectFolder: (id: string) => void;
   onSelectSource: (id: string) => void;
   onMoveFolder: (id: string, direction: "up" | "down") => Promise<void>;
+  onRelocateItem: (kind: "folder" | "source", id: string, parentId: string | null) => Promise<void>;
   onOpenFolderDialog: (dialog: FolderDialog) => void;
   onCloseFolderDialog: () => void;
   onSaveFolder: (event: FormEvent<HTMLFormElement>) => Promise<void> | void;
@@ -42,6 +54,19 @@ interface SidebarProps {
   onOpenAddSource: () => void;
   onOpenImportOpml: () => void;
 }
+
+type MoveHandlers = {
+  [
+    K in
+      | "onPointerDown"
+      | "onPointerMove"
+      | "onPointerUp"
+      | "onPointerCancel"
+      | "onContextMenu"
+      | "onKeyDown"
+      | "onDragStart"
+  ]: ComponentProps<"a">[K];
+};
 
 /** Renders the sidebar navigation, feed management controls, and OPML actions. */
 export function Sidebar(props: SidebarProps) {
@@ -59,12 +84,37 @@ export function Sidebar(props: SidebarProps) {
     onSelectSource,
     onOpenFolderDialog,
     onMoveFolder,
+    onRelocateItem,
     onCloseFolderDialog,
     onSaveFolder,
     onDeleteFolder,
     folderBusy,
     onOpenSourceDialog,
   } = props;
+  const [moveDialog, setMoveDialog] = useState<MoveItem | null>(null);
+  const [dragItem, setDragItem] = useState<MoveItem | null>(null);
+  const [dragError, setDragError] = useState("");
+  const pressRef = useRef<{
+    item: MoveItem;
+    pointerId: number;
+    x: number;
+    y: number;
+    active: boolean;
+    scrolling: boolean;
+    lastY: number;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const suppressClick = useRef(false);
+  useEffect(
+    () => () => {
+      if (pressRef.current) clearTimeout(pressRef.current.timer);
+    },
+    [],
+  );
+  const [dropTarget, setDropTarget] = useState<{
+    id: string;
+    position: "inside" | "before" | "after";
+  } | null>(null);
   const [expandedFolders, setExpandedFolders] = useState(readExpandedFolders);
   const [openMenu, setOpenMenu] = useState<"add" | "more" | null>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -95,13 +145,6 @@ export function Sidebar(props: SidebarProps) {
   useEffect(() => {
     saveExpandedFolders(expandedFolders);
   }, [expandedFolders]);
-  const [actionFolderId, setActionFolderId] = useState<string | null>(null);
-  useLayoutEffect(() => {
-    if (actionFolderId)
-      document
-        .getElementById(`folder-actions-${actionFolderId}`)
-        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [actionFolderId]);
   const collapsedFolders = new Set(
     folders.filter((folder) => !expandedFolders.has(folder.id)).map((folder) => folder.id),
   );
@@ -124,6 +167,164 @@ export function Sidebar(props: SidebarProps) {
       setMovingFolder(null);
     }
   };
+
+  const dropInto = async (moving: MoveItem, target: string | null) => {
+    if (folderBusy) return;
+    setDragError("");
+    const current = moving.kind === "folder" ? moving.item.parentId : moving.item.folderId;
+    if (current === target) return;
+    try {
+      await onRelocateItem(moving.kind, moving.item.id, target);
+    } catch (error) {
+      setDragError(humanError(error));
+    }
+  };
+
+  const targetAt = (moving: MoveItem, x: number, y: number) => {
+    const element = document.elementFromPoint(x, y);
+    if (element?.closest(".tayori-drop-root")) return { id: "", position: "inside" as const };
+    const row = element?.closest<HTMLElement>(".tayori-folder-row");
+    const folder = folders.find((item) => item.id === row?.dataset.folderId);
+    if (!row || !folder) return null;
+    const rect = row.getBoundingClientRect();
+    const fraction = (y - rect.top) / rect.height;
+    const canOrder =
+      moving.kind === "folder" &&
+      moving.item.parentId === folder.parentId &&
+      moving.item.id !== folder.id;
+    return {
+      id: folder.id,
+      position:
+        canOrder && fraction < 0.25
+          ? ("before" as const)
+          : canOrder && fraction > 0.75
+            ? ("after" as const)
+            : ("inside" as const),
+    };
+  };
+
+  const finishMove = async (moving: MoveItem, target: ReturnType<typeof targetAt>) => {
+    if (!target) return;
+    if (!target.id) return dropInto(moving, null);
+    const folder = folders.find((item) => item.id === target.id);
+    if (!folder) return;
+    if (moving.kind === "folder" && target.position !== "inside") {
+      const siblings = folders.filter((item) => item.parentId === folder.parentId);
+      const oldIndex = siblings.findIndex((item) => item.id === moving.item.id);
+      const targetIndex = siblings.findIndex((item) => item.id === folder.id);
+      const newIndex =
+        targetIndex + (target.position === "after" ? 1 : 0) - (oldIndex < targetIndex ? 1 : 0);
+      const direction = newIndex < oldIndex ? "up" : "down";
+      try {
+        for (let i = 0; i < Math.abs(newIndex - oldIndex); i++)
+          await onMoveFolder(moving.item.id, direction);
+      } catch (error) {
+        setDragError(humanError(error));
+      }
+      return;
+    }
+    if (moving.kind === "folder" && moving.item.id === folder.id) {
+      setMoveDialog(moving);
+      return;
+    }
+    await dropInto(moving, folder.id);
+  };
+
+  const moveHandlers = (item: MoveItem) => ({
+    onPointerDown: (event: ReactPointerEvent<HTMLAnchorElement>) => {
+      if (folderBusy || event.button !== 0 || !event.isPrimary) return;
+      if (pressRef.current) clearTimeout(pressRef.current.timer);
+      const anchor = event.currentTarget;
+      const press = {
+        item,
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        active: false,
+        scrolling: false,
+        lastY: event.clientY,
+        timer: setTimeout(() => {
+          if (pressRef.current !== press) return;
+          press.active = true;
+          suppressClick.current = true;
+          setDragError("");
+          setDragItem(item);
+        }, 500),
+      };
+      pressRef.current = press;
+      anchor.setPointerCapture(event.pointerId);
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLAnchorElement>) => {
+      const press = pressRef.current;
+      if (!press || press.pointerId !== event.pointerId) return;
+      if (
+        !press.active &&
+        (press.scrolling || Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8)
+      ) {
+        clearTimeout(press.timer);
+        if (event.pointerType === "touch") {
+          press.scrolling = true;
+          suppressClick.current = true;
+          const panel = event.currentTarget.closest<HTMLElement>(".tayori-sidebar-panel");
+          if (panel) panel.scrollTop += press.lastY - event.clientY;
+          press.lastY = event.clientY;
+        } else {
+          press.active = true;
+          suppressClick.current = true;
+          setDragError("");
+          setDragItem(press.item);
+          setDropTarget(targetAt(press.item, event.clientX, event.clientY));
+          event.preventDefault();
+        }
+        return;
+      }
+      if (press.active) {
+        event.preventDefault();
+        setDropTarget(targetAt(press.item, event.clientX, event.clientY));
+      }
+    },
+    onPointerUp: (event: ReactPointerEvent<HTMLAnchorElement>) => {
+      const press = pressRef.current;
+      if (!press || press.pointerId !== event.pointerId) return;
+      clearTimeout(press.timer);
+      pressRef.current = null;
+      if (!press.active) {
+        if (press.scrolling)
+          setTimeout(() => {
+            suppressClick.current = false;
+          }, 0);
+        return;
+      }
+      event.preventDefault();
+      const target = targetAt(press.item, event.clientX, event.clientY);
+      setDragItem(null);
+      setDropTarget(null);
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 8)
+        setMoveDialog(press.item);
+      else void finishMove(press.item, target);
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
+    },
+    onPointerCancel: () => {
+      if (pressRef.current) clearTimeout(pressRef.current.timer);
+      pressRef.current = null;
+      setDragItem(null);
+      setDropTarget(null);
+      suppressClick.current = false;
+    },
+    onContextMenu: (event: MouseEvent<HTMLAnchorElement>) => {
+      event.preventDefault();
+      if (!folderBusy && !pressRef.current?.active) setMoveDialog(item);
+    },
+    onKeyDown: (event: ReactKeyboardEvent<HTMLAnchorElement>) => {
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+        event.preventDefault();
+        if (!folderBusy) setMoveDialog(item);
+      }
+    },
+    onDragStart: (event: DragEvent<HTMLAnchorElement>) => event.preventDefault(),
+  });
 
   return (
     <>
@@ -237,12 +438,21 @@ export function Sidebar(props: SidebarProps) {
                 )}
               </div>
             </div>
+            {dragError && (
+              <p role="alert" className="text-sm text-error">
+                {dragError}
+              </p>
+            )}
+            <span id="tayori-move-help" className="sr-only">
+              長押ししてドラッグで移動。キーボードでは Shift と F10 で移動先を選択できます。
+            </span>
             <ul className="menu menu-sm max-h-52 w-full flex-nowrap overflow-y-auto p-0">
               {visibleFolders.map((folder) => (
                 <li key={folder.id} className="tayori-folder-entry w-full">
                   <div
-                    className="tayori-folder-row flex w-full min-w-0 flex-nowrap items-center gap-0.5"
+                    className={`tayori-folder-row flex w-full min-w-0 flex-nowrap items-center gap-1! p-1! ${dropTarget?.id === folder.id ? `tayori-drop-${dropTarget.position}` : ""}`}
                     style={{ marginInlineStart: `${Math.min(folder.depth * 16, 96)}px` }}
+                    data-folder-id={folder.id}
                   >
                     <button
                       className="btn btn-square btn-ghost btn-xs shrink-0"
@@ -257,6 +467,9 @@ export function Sidebar(props: SidebarProps) {
                       )}
                     </button>
                     <a
+                      {...moveHandlers({ kind: "folder", item: folder })}
+                      draggable={false}
+                      aria-describedby="tayori-move-help"
                       aria-current={folderId === folder.id ? "page" : undefined}
                       href={navigationHref(
                         { scope: "all", folderId: folder.id, sourceId: null },
@@ -264,9 +477,13 @@ export function Sidebar(props: SidebarProps) {
                       )}
                       className={
                         (folderId === folder.id ? "active " : "") +
-                        "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"
+                        "tayori-movable flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap px-2! py-1!"
                       }
                       onClick={(event) => {
+                        if (suppressClick.current) {
+                          event.preventDefault();
+                          return;
+                        }
                         if (isPlainNavigation(event)) {
                           event.preventDefault();
                           onSelectFolder(folder.id);
@@ -281,64 +498,13 @@ export function Sidebar(props: SidebarProps) {
                     </a>
                     <button
                       className="btn btn-square btn-ghost btn-xs shrink-0"
-                      aria-label={`${folder.name}の操作`}
-                      aria-expanded={actionFolderId === folder.id}
-                      aria-controls={`folder-actions-${folder.id}`}
-                      onClick={() =>
-                        setActionFolderId((current) => (current === folder.id ? null : folder.id))
-                      }
+                      aria-label={`「${folder.name}」のフォルダ設定`}
+                      title="フォルダ設定"
+                      onClick={() => onOpenFolderDialog({ mode: "edit", folder })}
                     >
-                      <LuEllipsis aria-hidden="true" />
+                      <LuSettings aria-hidden="true" />
                     </button>
                   </div>
-                  {actionFolderId === folder.id && (
-                    <div
-                      id={`folder-actions-${folder.id}`}
-                      className="tayori-folder-actions"
-                      role="group"
-                      aria-label={`${folder.name}の操作`}
-                    >
-                      <button
-                        className="btn btn-ghost btn-xs shrink-0"
-                        aria-label={`${folder.name}を上へ移動`}
-                        title="同じ親の中で上へ"
-                        disabled={
-                          folderBusy ||
-                          !!movingFolder ||
-                          folders.filter((item) => item.parentId === folder.parentId)[0]?.id ===
-                            folder.id
-                        }
-                        onClick={() => void moveFolder(folder.id, "up")}
-                      >
-                        <LuArrowUp aria-hidden="true" />
-                        <span>上へ移動</span>
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-xs shrink-0"
-                        aria-label={`${folder.name}を下へ移動`}
-                        title="同じ親の中で下へ"
-                        disabled={
-                          folderBusy ||
-                          !!movingFolder ||
-                          folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id ===
-                            folder.id
-                        }
-                        onClick={() => void moveFolder(folder.id, "down")}
-                      >
-                        <LuArrowDown aria-hidden="true" />
-                        <span>下へ移動</span>
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-xs shrink-0"
-                        aria-label={`「${folder.name}」のフォルダ設定`}
-                        title="フォルダ設定"
-                        onClick={() => onOpenFolderDialog({ mode: "edit", folder })}
-                      >
-                        <LuSettings aria-hidden="true" />
-                        <span>フォルダ設定</span>
-                      </button>
-                    </div>
-                  )}
                   {!collapsedFolders.has(folder.id) &&
                     sources
                       .filter(
@@ -352,6 +518,8 @@ export function Sidebar(props: SidebarProps) {
                           selected={sourceId === source.id}
                           onSelect={onSelectSource}
                           onSettings={onOpenSourceDialog}
+                          moveHandlers={moveHandlers}
+                          suppressClick={suppressClick}
                         />
                       ))}
                 </li>
@@ -365,10 +533,13 @@ export function Sidebar(props: SidebarProps) {
                       selected={sourceId === source.id}
                       onSelect={onSelectSource}
                       onSettings={onOpenSourceDialog}
+                      moveHandlers={moveHandlers}
+                      suppressClick={suppressClick}
                     />
                   </li>
                 ))}
             </ul>
+            {dragItem && <div className="tayori-drop-root">ルートに移動</div>}
           </section>
 
           <div className="mt-auto pt-8 text-xs leading-5 text-base-content/55" aria-live="polite">
@@ -378,7 +549,12 @@ export function Sidebar(props: SidebarProps) {
                 {status.lastTickAt && (
                   <>
                     <br />
-                    収集スケジューラー最終実行 {formatDate(status.lastTickAt)}
+                    <span
+                      title="収集スケジューラーの最終実行時刻です。購読先の取得完了時刻ではありません。"
+                      aria-label={`収集スケジューラーの最終実行 ${formatDate(status.lastTickAt)}`}
+                    >
+                      最終更新 {formatDate(status.lastTickAt)}
+                    </span>
                   </>
                 )}
               </>
@@ -403,6 +579,16 @@ export function Sidebar(props: SidebarProps) {
         </aside>
       </div>
 
+      {moveDialog && (
+        <MoveItemDialog
+          moving={moveDialog}
+          folders={folders}
+          busy={folderBusy}
+          onClose={() => setMoveDialog(null)}
+          onRelocate={onRelocateItem}
+          onReorder={moveFolder}
+        />
+      )}
       {folderDialog && (
         <FolderDialogModal
           key={
@@ -412,7 +598,7 @@ export function Sidebar(props: SidebarProps) {
           }
           dialog={folderDialog}
           folders={folders}
-          busy={folderBusy}
+          busy={folderBusy || !!movingFolder}
           onClose={onCloseFolderDialog}
           onSave={onSaveFolder}
           onDelete={onDeleteFolder}
@@ -429,12 +615,16 @@ function SourceItem({
   selected,
   onSelect,
   onSettings,
+  moveHandlers,
+  suppressClick,
 }: {
   source: Source;
   depth?: number;
   selected: boolean;
   onSelect: (id: string) => void;
   onSettings: (source: Source) => void;
+  moveHandlers: (item: MoveItem) => MoveHandlers;
+  suppressClick: { current: boolean };
 }) {
   return (
     <div
@@ -443,20 +633,32 @@ function SourceItem({
     >
       <div className="flex min-w-0 items-center gap-1">
         <a
+          {...moveHandlers({ kind: "source", item: source })}
+          draggable={false}
+          aria-describedby="tayori-move-help"
           aria-current={selected ? "page" : undefined}
           href={navigationHref(
             { scope: "all", folderId: null, sourceId: source.id },
             typeof window === "undefined" ? "/" : window.location.href,
           )}
-          className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`}
+          className={`tayori-movable flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${selected ? "active" : ""}`}
           title={source.errorCode ? `${source.title}（取得エラー）` : source.title}
           onClick={(event) => {
+            if (suppressClick.current) {
+              event.preventDefault();
+              return;
+            }
             if (isPlainNavigation(event)) {
               event.preventDefault();
               onSelect(source.id);
             }
           }}
         >
+          <SourceIcon
+            key={`${source.siteUrl ?? ""}|${source.url}`}
+            siteUrl={source.siteUrl}
+            feedUrl={source.url}
+          />
           <span className={`min-w-0 flex-1 truncate ${source.errorCode ? "text-error" : ""}`}>
             {source.title}
             {source.errorCode && <span className="sr-only">（取得エラー）</span>}
@@ -475,6 +677,33 @@ function SourceItem({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Uses the site's conventional favicon, falling back to the feed host and then the RSS icon. */
+function SourceIcon({ siteUrl, feedUrl }: { siteUrl?: string | null; feedUrl: string }) {
+  const urls = [siteUrl, feedUrl]
+    .flatMap((value) => {
+      if (!value) return [];
+      try {
+        const url = new URL(normalizeFeedUrl(value));
+        return [`${url.origin}/favicon.ico`];
+      } catch {
+        return [];
+      }
+    })
+    .filter((url, index, all) => all.indexOf(url) === index);
+  const [attempt, setAttempt] = useState(0);
+  return urls[attempt] ? (
+    <img
+      className="tayori-source-icon"
+      src={urls[attempt]}
+      alt=""
+      referrerPolicy="no-referrer"
+      onError={() => setAttempt((current) => current + 1)}
+    />
+  ) : (
+    <LuRss className="tayori-source-icon tayori-source-icon-fallback" aria-hidden="true" />
   );
 }
 

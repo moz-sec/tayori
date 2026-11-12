@@ -10,6 +10,7 @@ const source: Source = {
   folderId: null,
   title: "Feed",
   url: "https://example.com/feed",
+  siteUrl: "https://publisher.example/blog",
   status: "active",
   unreadCount: 7,
   lastCheckedAt: null,
@@ -32,6 +33,7 @@ function render(sources: Source[]) {
       folderBusy: false,
       onDeleteFolder: vi.fn(),
       onMoveFolder: vi.fn(),
+      onRelocateItem: vi.fn(),
       onOpenSourceDialog: vi.fn(),
       onOpenAddSource: vi.fn(),
       onOpenImportOpml: vi.fn(),
@@ -56,15 +58,19 @@ describe("feed diagnostics", () => {
       { ...source, id: "s2", title: "Grouped", folderId: "folder", unreadCount: 0 },
     ]);
     expect(html).toContain("未読7件");
+    expect(html).toContain('src="https://publisher.example/favicon.ico"');
+    expect(html).toContain('referrerPolicy="no-referrer"');
     expect(html).toContain("未読0件");
     expect(html).not.toContain("取得状況");
-    expect(html).toContain("収集スケジューラー最終実行");
+    expect(html).toContain("最終更新");
     expect(html).not.toContain("未分類");
     expect(html).toMatch(/購読先[\s\S]*<ul[^>]*>[\s\S]*Feedの購読設定[\s\S]*<\/ul>/);
   });
   it("keeps folders closed by default", () => {
     const html = render([{ ...source, folderId: "folder", title: "Grouped" }]);
     expect(html).toContain("Folderを展開");
+    expect(html).toContain("「Folder」のフォルダ設定");
+    expect(html).not.toContain("Folderの操作");
     expect(html).not.toContain("Grouped");
   });
   it("marks failing feeds in the sidebar", () => {

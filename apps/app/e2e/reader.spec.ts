@@ -8,7 +8,9 @@ test.beforeEach(async ({ request, page }) => {
   await page.goto("/");
   await expect(page.locator("article")).toHaveCount(50);
   await expect(page.getByRole("button", { name: "親フォルダを展開", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "子フォルダの操作", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "親フォルダを展開", exact: true }).click();
   await page.getByRole("button", { name: "子フォルダを展開", exact: true }).click();
 });
@@ -39,6 +41,23 @@ test("フォルダと購読先を階層に応じて字下げする", async ({ pa
   expect(source!.x).toBeGreaterThan(child!.x);
   expect(child!.y).toBeGreaterThan(parent!.y);
   expect(source!.y).toBeGreaterThan(child!.y);
+});
+
+test("フォルダと購読先の未読数と設定ボタンを右端で揃える", async ({ page }) => {
+  const folder = page.locator(".tayori-folder-row").filter({ hasText: "子フォルダ" });
+  const source = page.locator(".tayori-source-row").filter({ hasText: "テスト購読" });
+  for (const selector of [".badge", 'button[title$="設定"]']) {
+    const folderBox = await folder.locator(selector).boundingBox();
+    const sourceBox = await source.locator(selector).boundingBox();
+    expect(folderBox).not.toBeNull();
+    expect(sourceBox).not.toBeNull();
+    expect(folderBox!.x + folderBox!.width).toBeCloseTo(sourceBox!.x + sourceBox!.width, 0);
+  }
+});
+
+test("ファビコンを取得できない場合はRSSアイコンにする", async ({ page }) => {
+  const source = page.locator(".tayori-source-row").filter({ hasText: "テスト購読" });
+  await expect(source.locator(".tayori-source-icon-fallback")).toBeVisible();
 });
 
 test("購読先のメニューから追加とOPML取り込みを開ける", async ({ page }) => {
@@ -81,7 +100,7 @@ test("購読の登録・編集・移動・確認付き解除と既存記事の�
     .click();
   await expect(page.getByRole("button", { name: "追加購読の購読設定", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "テスト購読の購読設定", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "購読設定：テスト購読", exact: true });
+  const dialog = page.getByRole("dialog", { name: "テスト購読", exact: true });
   await dialog.getByLabel("表示名", { exact: true }).fill("編集済み購読");
   await dialog
     .getByLabel("RSS / Atom URL", { exact: true })
@@ -89,10 +108,11 @@ test("購読の登録・編集・移動・確認付き解除と既存記事の�
   await dialog.getByRole("combobox", { name: "所属フォルダ", exact: true }).selectOption("other");
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await expect(dialog).not.toBeVisible();
+  await page.getByRole("button", { name: "移動先を展開", exact: true }).click();
   const settings = page.getByRole("button", { name: "編集済み購読の購読設定", exact: true });
   await expect(settings).toBeVisible();
   await settings.click();
-  const edited = page.getByRole("dialog", { name: "購読設定：編集済み購読", exact: true });
+  const edited = page.getByRole("dialog", { name: "編集済み購読", exact: true });
   await expect(edited.getByRole("combobox", { name: "所属フォルダ", exact: true })).toHaveValue(
     "other",
   );
@@ -120,9 +140,9 @@ test("購読設定で取得状況を確認できる", async ({ page }) => {
   const status = dialog.getByRole("region", { name: "取得状況" });
   await expect(status.locator("details")).not.toHaveAttribute("open");
   await status.getByText("取得状況", { exact: true }).click();
-  await expect(status.getByText("次回対象時刻")).toBeVisible();
+  await expect(status.getByText("次回対象時刻", { exact: true })).toBeVisible();
   await status.getByText("取得状況", { exact: true }).click();
-  await expect(status.getByText("次回対象時刻")).not.toBeVisible();
+  await expect(status.getByText("次回対象時刻", { exact: true })).not.toBeVisible();
   await expect(dialog.getByRole("combobox", { name: "収集", exact: true })).toHaveCount(0);
 });
 
@@ -134,9 +154,13 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
   await create.getByLabel("フォルダ名").fill("新規フォルダ");
   await create.getByRole("button", { name: "フォルダを作成", exact: true }).click();
   await expect(create).not.toBeVisible();
-  await expect(page.getByRole("button", { name: "新規フォルダの操作", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "「新規フォルダ」のフォルダ設定", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "親フォルダを折りたたむ", exact: true }).click();
-  await expect(page.getByRole("button", { name: "子フォルダの操作", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }),
+  ).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("button", { name: "親フォルダを展開", exact: true })).toHaveAttribute(
     "aria-expanded",
@@ -146,8 +170,10 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
   const beforeMove = (await (await request.get("/api/v1/folders")).json()).data
     .filter((folder: { parentId: string | null }) => !folder.parentId)
     .map((folder: { id: string }) => folder.id);
-  await page.getByRole("button", { name: "親フォルダの操作", exact: true }).click();
-  await page.getByRole("button", { name: "親フォルダを下へ移動", exact: true }).click();
+  await page.getByRole("link", { name: "親フォルダ" }).focus();
+  await page.keyboard.press("Shift+F10");
+  const moveDialog = page.getByRole("dialog", { name: "「親フォルダ」を移動", exact: true });
+  await moveDialog.getByRole("button", { name: "下へ移動", exact: true }).click();
   await expect
     .poll(async () => {
       const result = await (await request.get("/api/v1/folders")).json();
@@ -157,7 +183,7 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
         .indexOf("parent");
     })
     .toBe(beforeMove.indexOf("parent") + 1);
-  await page.getByRole("button", { name: "子フォルダの操作", exact: true }).click();
+  await moveDialog.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "フォルダ設定", exact: true });
   await dialog.getByRole("button", { name: "フォルダを削除", exact: true }).click();
@@ -168,9 +194,10 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
   ).toBeVisible();
   await dialog.getByRole("button", { name: "確認して削除", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole("button", { name: "子フォルダの操作", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }),
+  ).toHaveCount(0);
   expect((await (await request.get("/api/v1/sources")).json()).data[0].folderId).toBe("parent");
-  await page.getByRole("button", { name: "親フォルダの操作", exact: true }).click();
   await page.getByRole("button", { name: "「親フォルダ」のフォルダ設定", exact: true }).click();
   await dialog.getByRole("button", { name: "フォルダを削除", exact: true }).click();
   await dialog.getByRole("button", { name: "確認して削除", exact: true }).click();
@@ -181,10 +208,230 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
   ).toBeVisible();
 });
 
+test("購読先の文字をドラッグしてフォルダへ移動する", async ({ page, request }) => {
+  const source = page.getByRole("link", { name: "テスト購読" });
+  const folder = page.locator(".tayori-folder-row").filter({ hasText: "親フォルダ" });
+  await expect(source).toHaveAttribute("draggable", "false");
+  const sourceBox = (await source.locator("span").first().boundingBox())!;
+  const targetBox = (await folder.boundingBox())!;
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await (await request.get("/api/v1/sources")).json()).data[0].folderId)
+    .toBe("parent");
+  await page.reload();
+  await expect
+    .poll(async () => (await (await request.get("/api/v1/sources")).json()).data[0].folderId)
+    .toBe("parent");
+});
+
+test("長押ししてドラッグで購読先とフォルダを移動する", async ({ page, request }) => {
+  const parentRow = page.locator(".tayori-folder-row").filter({ hasText: "親フォルダ" });
+  const drag = async (
+    name: string,
+    target: import("@playwright/test").Locator,
+    yOffset?: number,
+  ) => {
+    const link = page.getByRole("link", { name });
+    const box = (await link.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(page.locator(".tayori-drop-root")).toBeVisible();
+    const destination = (await target.boundingBox())!;
+    await page.mouse.move(
+      destination.x + destination.width / 2,
+      destination.y + (yOffset ?? destination.height / 2),
+      { steps: 5 },
+    );
+    await page.mouse.up();
+  };
+  await drag("テスト購読", parentRow);
+  await expect
+    .poll(async () => (await (await request.get("/api/v1/sources")).json()).data[0].folderId)
+    .toBe("parent");
+  await drag("子フォルダ", page.locator(".tayori-drop-root"));
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get("/api/v1/folders")).json()).data.find(
+          (folder: { id: string }) => folder.id === "child",
+        ).parentId,
+    )
+    .toBeNull();
+  await drag("子フォルダ", parentRow);
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get("/api/v1/folders")).json()).data.find(
+          (folder: { id: string }) => folder.id === "child",
+        ).parentId,
+    )
+    .toBe("parent");
+  await drag("テスト購読", page.locator(".tayori-drop-root"));
+  await expect
+    .poll(async () => (await (await request.get("/api/v1/sources")).json()).data[0].folderId)
+    .toBeNull();
+});
+
+test("長押ししてフォルダを同じ階層で並べ替える", async ({ page, request }) => {
+  await page.getByRole("button", { name: "購読先やフォルダを追加" }).click();
+  await page.getByRole("button", { name: "フォルダを作成", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "フォルダを作成" });
+  await create.getByLabel("フォルダ名").fill("別フォルダ");
+  await create.getByRole("button", { name: "フォルダを作成" }).click();
+  const before = (await (await request.get("/api/v1/folders")).json()).data.filter(
+    (folder: { parentId: string | null }) => folder.parentId === null,
+  );
+  const moving = before.at(-1);
+  const source = (await page.getByRole("link", { name: moving.name }).boundingBox())!;
+  const target = (await page
+    .locator(".tayori-folder-row")
+    .filter({ hasText: before[0].name })
+    .boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await expect(page.locator(".tayori-drop-root")).toBeVisible();
+  await page.mouse.move(target.x + 80, target.y + 2, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () =>
+      (await (await request.get("/api/v1/folders")).json()).data
+        .filter((folder: { parentId: string | null }) => folder.parentId === null)
+        .map((folder: { id: string }) => folder.id)
+        .indexOf(moving.id),
+    )
+    .toBe(0);
+});
+
+test.describe("タッチ操作", () => {
+  test.use({ hasTouch: true });
+  test("長押しした購読先をタッチでドラッグできる", async ({ page, request, context }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const open = page.getByRole("button", { name: "サイドバーを開く" });
+    await expect(open).toBeVisible();
+    await open.tap();
+    const source = (await page.getByRole("link", { name: "テスト購読" }).boundingBox())!;
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: source.x + source.width / 2, y: source.y + source.height / 2 }],
+    });
+    await expect(page.locator(".tayori-drop-root")).toBeVisible();
+    const target = (await page
+      .locator(".tayori-folder-row")
+      .filter({ hasText: "親フォルダ" })
+      .boundingBox())!;
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: target.x + target.width / 2, y: target.y + target.height / 2 }],
+    });
+    await expect(page.locator(".tayori-folder-row").filter({ hasText: "親フォルダ" })).toHaveClass(
+      /tayori-drop-inside/,
+    );
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect
+      .poll(async () => (await (await request.get("/api/v1/sources")).json()).data[0].folderId)
+      .toBe("parent");
+  });
+  test("長押しで購読先の移動先を選べる", async ({ page, request, context }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const open = page.getByRole("button", { name: "サイドバーを開く" });
+    await expect(open).toBeVisible();
+    await open.tap();
+    const box = (await page.getByRole("link", { name: "テスト購読" }).boundingBox())!;
+    const cdp = await context.newCDPSession(page);
+    const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+    await expect(page.locator(".tayori-drop-root")).toBeVisible();
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    const dialog = page.getByRole("dialog", { name: "「テスト購読」を移動" });
+    await dialog.getByLabel("移動先").selectOption("parent");
+    await dialog.getByRole("button", { name: "移動", exact: true }).tap();
+    await expect
+      .poll(async () => (await (await request.get("/api/v1/sources")).json()).data[0].folderId)
+      .toBe("parent");
+  });
+});
+
+test("クリックで選択しキーボードで移動先を選べる", async ({ page, request }) => {
+  const link = page.getByRole("link", { name: "テスト購読" });
+  await link.click();
+  await expect(link).toHaveAttribute("aria-current", "page");
+  await link.focus();
+  await page.keyboard.press("Shift+F10");
+  const dialog = page.getByRole("dialog", { name: "「テスト購読」を移動" });
+  await dialog.getByLabel("移動先").selectOption("parent");
+  await dialog.getByRole("button", { name: "移動", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect
+    .poll(async () => (await (await request.get("/api/v1/sources")).json()).data[0].folderId)
+    .toBe("parent");
+  const parent = page.getByRole("link", { name: "親フォルダ" });
+  await parent.focus();
+  await page.keyboard.press("Shift+F10");
+  const folderDialog = page.getByRole("dialog", { name: "「親フォルダ」を移動" });
+  await expect(folderDialog.getByLabel("移動先").locator('option[value="child"]')).toHaveCount(0);
+  await expect(folderDialog.getByRole("button", { name: "上へ移動" })).toBeVisible();
+});
+
+test("折りたたまれた移動先に移した後もフォーカスを戻す", async ({ page }) => {
+  const source = page.getByRole("link", { name: "テスト購読" });
+  await source.focus();
+  await page.keyboard.press("Shift+F10");
+  const dialog = page.getByRole("dialog", { name: "「テスト購読」を移動" });
+  await dialog.getByLabel("移動先").selectOption("other");
+  await dialog.getByRole("button", { name: "移動", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "サイドバーを閉じる" })).toBeFocused();
+});
+
+test("移動後に一覧の再読み込みが失敗した場合は通知する", async ({ page }) => {
+  let failReload = false;
+  await page.route("**/api/v1/sources/seed-source", async (route) => {
+    const response = await route.fetch();
+    failReload = true;
+    await route.fulfill({ response });
+  });
+  await page.route("**/api/v1/sources", async (route) => {
+    if (failReload) await route.abort();
+    else await route.continue();
+  });
+  await page.getByRole("link", { name: "テスト購読" }).focus();
+  await page.keyboard.press("Shift+F10");
+  const dialog = page.getByRole("dialog", { name: "「テスト購読」を移動" });
+  await dialog.getByLabel("移動先").selectOption("other");
+  await dialog.getByRole("button", { name: "移動", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "移動しましたが、一覧を更新できませんでした" }),
+  ).toBeVisible();
+});
+
+test("フォルダ設定を小さい画面でも操作できる", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const openSidebar = page.getByRole("button", { name: "サイドバーを開く", exact: true });
+  await expect(openSidebar).toBeVisible();
+  await openSidebar.click();
+  await page.getByRole("button", { name: "「親フォルダ」のフォルダ設定", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "フォルダ設定", exact: true });
+  await expect(dialog.getByRole("heading", { name: "フォルダ設定" })).toBeVisible();
+  await expect(dialog.getByLabel("フォルダ名", { exact: true })).toBeVisible();
+  expect(
+    await dialog
+      .locator(".modal-box")
+      .evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
+  await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+});
+
 test("記事選択・既読・保存・ページングと再読み込み後の状態", async ({ page }) => {
   await page.getByRole("checkbox", { name: "「テスト記事 01」を選択", exact: true }).check();
   await page.getByRole("checkbox", { name: "「テスト記事 02」を選択", exact: true }).check();
-  await page.getByRole("button", { name: "選択した記事を既読（2件）", exact: true }).click();
+  await page.getByRole("button", { name: "既読（2件）", exact: true }).click();
   const first = page
     .locator("article")
     .filter({ has: page.getByRole("link", { name: "テスト記事 01", exact: true }) });
@@ -219,7 +466,7 @@ test("画面復帰で別端末変更を反映しダイアログからフォー�
 }) => {
   const settings = page.getByRole("button", { name: "テスト購読の購読設定", exact: true });
   await settings.click();
-  const dialog = page.getByRole("dialog", { name: "購読設定：テスト購読", exact: true });
+  const dialog = page.getByRole("dialog", { name: "テスト購読", exact: true });
   await expect(dialog.getByLabel("表示名", { exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
@@ -323,7 +570,7 @@ test("設定画面の左右どちらからもスクロールできる", async ({
 
 test("購読URLの競合後は最新一覧を読み込み、古い入力の再保存を防ぐ", async ({ page, request }) => {
   await page.getByRole("button", { name: "テスト購読の購読設定", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "購読設定：テスト購読", exact: true });
+  const dialog = page.getByRole("dialog", { name: "テスト購読", exact: true });
   await dialog
     .getByLabel("RSS / Atom URL", { exact: true })
     .fill("https://tayori.invalid/stale-draft.xml");
@@ -343,14 +590,12 @@ test("購読URLの競合後は最新一覧を読み込み、古い入力の再�
   await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "別端末URLの購読設定", exact: true }).click();
   await expect(
-    page
-      .getByRole("dialog", { name: "購読設定：別端末URL" })
-      .getByLabel("RSS / Atom URL", { exact: true }),
+    page.getByRole("dialog", { name: "別端末URL" }).getByLabel("RSS / Atom URL", { exact: true }),
   ).toHaveValue("https://tayori.invalid/latest.xml");
 });
 
 test("小さい画面でもサイドバーをスクロールして収集設定へ移動できる", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 560 });
+  await page.setViewportSize({ width: 390, height: 360 });
   await page.getByRole("button", { name: "サイドバーを開く", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "購読ナビゲーション" });
   await expect(drawer).toHaveCSS("pointer-events", "auto");
