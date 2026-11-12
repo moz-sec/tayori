@@ -42,11 +42,20 @@ export default {
           `Update the E2E reset dependency order for: ${unknown.map((table) => table.name).join(", ")}`,
         );
       for (const path of Object.keys(migrations).sort()) {
-        const statements = migrations[path]
-          .split(";")
-          .map((sql) => sql.trim())
-          .filter(Boolean);
-        for (const sql of statements) await env.DB.prepare(sql).run();
+        let statement = "";
+        let trigger = false;
+        for (const line of migrations[path].split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("--")) continue;
+          statement += `${line}\n`;
+          if (/^CREATE\s+TRIGGER\b/i.test(trimmed)) trigger = true;
+          if (trigger ? /^END;$/i.test(trimmed) : trimmed.endsWith(";")) {
+            await env.DB.prepare(statement).run();
+            statement = "";
+            trigger = false;
+          }
+        }
+        if (statement.trim()) throw new Error(`Incomplete migration: ${path}`);
       }
       await env.DB.exec("PRAGMA foreign_keys = ON");
       const now = Math.floor(Date.now() / 1000);
