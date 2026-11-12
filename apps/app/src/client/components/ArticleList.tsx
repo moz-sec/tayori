@@ -213,9 +213,6 @@ function ArticleCard({
             />
             お気に入り
           </button>
-          <span className="ml-auto text-xs text-base-content/75">
-            保存期限 {formatDate(article.expiresAt)}
-          </span>
         </div>
       </div>
     </article>
