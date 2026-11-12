@@ -8,7 +8,9 @@ test.beforeEach(async ({ request, page }) => {
   await page.goto("/");
   await expect(page.locator("article")).toHaveCount(50);
   await expect(page.getByRole("button", { name: "親フォルダを展開", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "子フォルダの操作", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "親フォルダを展開", exact: true }).click();
   await page.getByRole("button", { name: "子フォルダを展開", exact: true }).click();
 });
@@ -134,9 +136,13 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
   await create.getByLabel("フォルダ名").fill("新規フォルダ");
   await create.getByRole("button", { name: "フォルダを作成", exact: true }).click();
   await expect(create).not.toBeVisible();
-  await expect(page.getByRole("button", { name: "新規フォルダの操作", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "「新規フォルダ」のフォルダ設定", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "親フォルダを折りたたむ", exact: true }).click();
-  await expect(page.getByRole("button", { name: "子フォルダの操作", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }),
+  ).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("button", { name: "親フォルダを展開", exact: true })).toHaveAttribute(
     "aria-expanded",
@@ -146,8 +152,9 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
   const beforeMove = (await (await request.get("/api/v1/folders")).json()).data
     .filter((folder: { parentId: string | null }) => !folder.parentId)
     .map((folder: { id: string }) => folder.id);
-  await page.getByRole("button", { name: "親フォルダの操作", exact: true }).click();
-  await page.getByRole("button", { name: "親フォルダを下へ移動", exact: true }).click();
+  await page.getByRole("button", { name: "「親フォルダ」のフォルダ設定", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "フォルダ設定", exact: true });
+  await dialog.getByRole("button", { name: "親フォルダを下へ移動", exact: true }).click();
   await expect
     .poll(async () => {
       const result = await (await request.get("/api/v1/folders")).json();
@@ -157,9 +164,8 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
         .indexOf("parent");
     })
     .toBe(beforeMove.indexOf("parent") + 1);
-  await page.getByRole("button", { name: "子フォルダの操作", exact: true }).click();
+  await dialog.getByRole("button", { name: "キャンセル", exact: true }).click();
   await page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "フォルダ設定", exact: true });
   await dialog.getByRole("button", { name: "フォルダを削除", exact: true }).click();
   await expect(
     dialog.getByText("直下の子フォルダと購読先は親フォルダ「親フォルダ」へ移動します。", {
@@ -168,9 +174,10 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
   ).toBeVisible();
   await dialog.getByRole("button", { name: "確認して削除", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole("button", { name: "子フォルダの操作", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }),
+  ).toHaveCount(0);
   expect((await (await request.get("/api/v1/sources")).json()).data[0].folderId).toBe("parent");
-  await page.getByRole("button", { name: "親フォルダの操作", exact: true }).click();
   await page.getByRole("button", { name: "「親フォルダ」のフォルダ設定", exact: true }).click();
   await dialog.getByRole("button", { name: "フォルダを削除", exact: true }).click();
   await dialog.getByRole("button", { name: "確認して削除", exact: true }).click();

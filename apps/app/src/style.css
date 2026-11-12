@@ -36,19 +36,6 @@ select {
   }
 }
 
-/* Secondary folder actions expand in the list so they are not clipped by scroll containers. */
-.tayori-folder-actions {
-  display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem !important;
-  padding: 0.5rem !important;
-}
-.tayori-folder-actions > button {
-  width: 100%;
-  height: auto;
-  min-height: 2.75rem;
-  white-space: normal;
-}
 @media (any-pointer: coarse) {
   .tayori-source-settings .tayori-source-settings-header .btn {
     min-width: 2.75rem;

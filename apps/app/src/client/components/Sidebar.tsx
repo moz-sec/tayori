@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { FolderDialog as FolderDialogModal } from "./FolderDialog";
 import {
   LuBookmark,
@@ -10,8 +10,6 @@ import {
   LuRss,
   LuChevronDown,
   LuChevronRight,
-  LuArrowUp,
-  LuArrowDown,
   LuEllipsis,
 } from "react-icons/lu";
 import { flattenFolders, readExpandedFolders, saveExpandedFolders } from "../lib/folder-tree";
@@ -95,13 +93,6 @@ export function Sidebar(props: SidebarProps) {
   useEffect(() => {
     saveExpandedFolders(expandedFolders);
   }, [expandedFolders]);
-  const [actionFolderId, setActionFolderId] = useState<string | null>(null);
-  useLayoutEffect(() => {
-    if (actionFolderId)
-      document
-        .getElementById(`folder-actions-${actionFolderId}`)
-        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [actionFolderId]);
   const collapsedFolders = new Set(
     folders.filter((folder) => !expandedFolders.has(folder.id)).map((folder) => folder.id),
   );
@@ -281,64 +272,13 @@ export function Sidebar(props: SidebarProps) {
                     </a>
                     <button
                       className="btn btn-square btn-ghost btn-xs shrink-0"
-                      aria-label={`${folder.name}の操作`}
-                      aria-expanded={actionFolderId === folder.id}
-                      aria-controls={`folder-actions-${folder.id}`}
-                      onClick={() =>
-                        setActionFolderId((current) => (current === folder.id ? null : folder.id))
-                      }
+                      aria-label={`「${folder.name}」のフォルダ設定`}
+                      title="フォルダ設定"
+                      onClick={() => onOpenFolderDialog({ mode: "edit", folder })}
                     >
-                      <LuEllipsis aria-hidden="true" />
+                      <LuSettings aria-hidden="true" />
                     </button>
                   </div>
-                  {actionFolderId === folder.id && (
-                    <div
-                      id={`folder-actions-${folder.id}`}
-                      className="tayori-folder-actions"
-                      role="group"
-                      aria-label={`${folder.name}の操作`}
-                    >
-                      <button
-                        className="btn btn-ghost btn-xs shrink-0"
-                        aria-label={`${folder.name}を上へ移動`}
-                        title="同じ親の中で上へ"
-                        disabled={
-                          folderBusy ||
-                          !!movingFolder ||
-                          folders.filter((item) => item.parentId === folder.parentId)[0]?.id ===
-                            folder.id
-                        }
-                        onClick={() => void moveFolder(folder.id, "up")}
-                      >
-                        <LuArrowUp aria-hidden="true" />
-                        <span>上へ移動</span>
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-xs shrink-0"
-                        aria-label={`${folder.name}を下へ移動`}
-                        title="同じ親の中で下へ"
-                        disabled={
-                          folderBusy ||
-                          !!movingFolder ||
-                          folders.filter((item) => item.parentId === folder.parentId).at(-1)?.id ===
-                            folder.id
-                        }
-                        onClick={() => void moveFolder(folder.id, "down")}
-                      >
-                        <LuArrowDown aria-hidden="true" />
-                        <span>下へ移動</span>
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-xs shrink-0"
-                        aria-label={`「${folder.name}」のフォルダ設定`}
-                        title="フォルダ設定"
-                        onClick={() => onOpenFolderDialog({ mode: "edit", folder })}
-                      >
-                        <LuSettings aria-hidden="true" />
-                        <span>フォルダ設定</span>
-                      </button>
-                    </div>
-                  )}
                   {!collapsedFolders.has(folder.id) &&
                     sources
                       .filter(
@@ -412,7 +352,8 @@ export function Sidebar(props: SidebarProps) {
           }
           dialog={folderDialog}
           folders={folders}
-          busy={folderBusy}
+          busy={folderBusy || !!movingFolder}
+          onMove={moveFolder}
           onClose={onCloseFolderDialog}
           onSave={onSaveFolder}
           onDelete={onDeleteFolder}

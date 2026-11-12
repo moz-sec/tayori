@@ -65,6 +65,8 @@ describe("feed diagnostics", () => {
   it("keeps folders closed by default", () => {
     const html = render([{ ...source, folderId: "folder", title: "Grouped" }]);
     expect(html).toContain("Folderを展開");
+    expect(html).toContain("「Folder」のフォルダ設定");
+    expect(html).not.toContain("Folderの操作");
     expect(html).not.toContain("Grouped");
   });
   it("marks failing feeds in the sidebar", () => {
