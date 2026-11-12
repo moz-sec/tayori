@@ -62,7 +62,7 @@ describe("feed diagnostics", () => {
     expect(html).toContain('referrerPolicy="no-referrer"');
     expect(html).toContain("未読0件");
     expect(html).not.toContain("取得状況");
-    expect(html).toContain("収集スケジューラー最終実行");
+    expect(html).toContain("最終更新");
     expect(html).not.toContain("未分類");
     expect(html).toMatch(/購読先[\s\S]*<ul[^>]*>[\s\S]*Feedの購読設定[\s\S]*<\/ul>/);
   });

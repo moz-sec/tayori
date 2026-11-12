@@ -545,7 +545,7 @@ export function Sidebar(props: SidebarProps) {
                 {status.lastTickAt && (
                   <>
                     <br />
-                    収集スケジューラー最終実行 {formatDate(status.lastTickAt)}
+                    最終更新 {formatDate(status.lastTickAt)}
                   </>
                 )}
               </>
