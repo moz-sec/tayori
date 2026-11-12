@@ -100,7 +100,7 @@ test("購読の登録・編集・移動・確認付き解除と既存記事の�
     .click();
   await expect(page.getByRole("button", { name: "追加購読の購読設定", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "テスト購読の購読設定", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "購読設定：テスト購読", exact: true });
+  const dialog = page.getByRole("dialog", { name: "テスト購読", exact: true });
   await dialog.getByLabel("表示名", { exact: true }).fill("編集済み購読");
   await dialog
     .getByLabel("RSS / Atom URL", { exact: true })
@@ -108,10 +108,11 @@ test("購読の登録・編集・移動・確認付き解除と既存記事の�
   await dialog.getByRole("combobox", { name: "所属フォルダ", exact: true }).selectOption("other");
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await expect(dialog).not.toBeVisible();
+  await page.getByRole("button", { name: "移動先を展開", exact: true }).click();
   const settings = page.getByRole("button", { name: "編集済み購読の購読設定", exact: true });
   await expect(settings).toBeVisible();
   await settings.click();
-  const edited = page.getByRole("dialog", { name: "購読設定：編集済み購読", exact: true });
+  const edited = page.getByRole("dialog", { name: "編集済み購読", exact: true });
   await expect(edited.getByRole("combobox", { name: "所属フォルダ", exact: true })).toHaveValue(
     "other",
   );
@@ -139,9 +140,9 @@ test("購読設定で取得状況を確認できる", async ({ page }) => {
   const status = dialog.getByRole("region", { name: "取得状況" });
   await expect(status.locator("details")).not.toHaveAttribute("open");
   await status.getByText("取得状況", { exact: true }).click();
-  await expect(status.getByText("次回対象時刻")).toBeVisible();
+  await expect(status.getByText("次回対象時刻", { exact: true })).toBeVisible();
   await status.getByText("取得状況", { exact: true }).click();
-  await expect(status.getByText("次回対象時刻")).not.toBeVisible();
+  await expect(status.getByText("次回対象時刻", { exact: true })).not.toBeVisible();
   await expect(dialog.getByRole("combobox", { name: "収集", exact: true })).toHaveCount(0);
 });
 
@@ -398,7 +399,7 @@ test("フォルダ設定を小さい画面でも操作できる", async ({ page 
 test("記事選択・既読・保存・ページングと再読み込み後の状態", async ({ page }) => {
   await page.getByRole("checkbox", { name: "「テスト記事 01」を選択", exact: true }).check();
   await page.getByRole("checkbox", { name: "「テスト記事 02」を選択", exact: true }).check();
-  await page.getByRole("button", { name: "選択した記事を既読（2件）", exact: true }).click();
+  await page.getByRole("button", { name: "既読（2件）", exact: true }).click();
   const first = page
     .locator("article")
     .filter({ has: page.getByRole("link", { name: "テスト記事 01", exact: true }) });
@@ -433,7 +434,7 @@ test("画面復帰で別端末変更を反映しダイアログからフォー�
 }) => {
   const settings = page.getByRole("button", { name: "テスト購読の購読設定", exact: true });
   await settings.click();
-  const dialog = page.getByRole("dialog", { name: "購読設定：テスト購読", exact: true });
+  const dialog = page.getByRole("dialog", { name: "テスト購読", exact: true });
   await expect(dialog.getByLabel("表示名", { exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
@@ -537,7 +538,7 @@ test("設定画面の左右どちらからもスクロールできる", async ({
 
 test("購読URLの競合後は最新一覧を読み込み、古い入力の再保存を防ぐ", async ({ page, request }) => {
   await page.getByRole("button", { name: "テスト購読の購読設定", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "購読設定：テスト購読", exact: true });
+  const dialog = page.getByRole("dialog", { name: "テスト購読", exact: true });
   await dialog
     .getByLabel("RSS / Atom URL", { exact: true })
     .fill("https://tayori.invalid/stale-draft.xml");
@@ -557,14 +558,12 @@ test("購読URLの競合後は最新一覧を読み込み、古い入力の再�
   await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "別端末URLの購読設定", exact: true }).click();
   await expect(
-    page
-      .getByRole("dialog", { name: "購読設定：別端末URL" })
-      .getByLabel("RSS / Atom URL", { exact: true }),
+    page.getByRole("dialog", { name: "別端末URL" }).getByLabel("RSS / Atom URL", { exact: true }),
   ).toHaveValue("https://tayori.invalid/latest.xml");
 });
 
 test("小さい画面でもサイドバーをスクロールして収集設定へ移動できる", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 560 });
+  await page.setViewportSize({ width: 390, height: 360 });
   await page.getByRole("button", { name: "サイドバーを開く", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "購読ナビゲーション" });
   await expect(drawer).toHaveCSS("pointer-events", "auto");
