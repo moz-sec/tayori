@@ -161,6 +161,7 @@ export function App() {
       background = false,
       clearNotice = true,
       showProgress = false,
+      onFailure?: () => void,
     ): Promise<boolean> => {
       const selection = { scope, folderId, sourceId };
       const view = navigationKey(selection);
@@ -239,6 +240,7 @@ export function App() {
           showProgress,
           error: humanError(error),
         });
+        onFailure?.();
         return false;
       } finally {
         if (version === reloadVersion.current && view === currentViewRef.current) {
@@ -382,8 +384,16 @@ export function App() {
         method: "PATCH",
         body: JSON.stringify(kind === "folder" ? { parentId } : { folderId: parentId }),
       });
-      await latestReload.current();
-      tell("移動しました");
+      let reloadFailed = false;
+      const refreshed = await latestReload.current(false, false, true, false, () => {
+        reloadFailed = true;
+      });
+      if (reloadFailed)
+        tell(
+          "移動しましたが、一覧を更新できませんでした。更新ボタンで再読み込みしてください。",
+          true,
+        );
+      else if (refreshed) tell("移動しました");
     } catch (error) {
       await latestReload.current();
       throw error;

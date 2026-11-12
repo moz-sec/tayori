@@ -48,7 +48,16 @@ export function MoveItemDialog({
     return () => {
       if (dialogRef.current?.open) dialogRef.current.close();
       requestAnimationFrame(() => {
-        if (opener?.isConnected) opener.focus();
+        if (opener?.isConnected && !opener.closest("[inert]") && opener.getClientRects().length) {
+          opener.focus();
+          if (document.activeElement === opener) return;
+        }
+        const closeSidebar = document.getElementById("tayori-sidebar-close");
+        if (closeSidebar?.getClientRects().length) {
+          closeSidebar.focus();
+          if (document.activeElement === closeSidebar) return;
+        }
+        document.querySelector<HTMLButtonElement>('button[aria-label="更新"]')?.focus();
       });
     };
   }, []);

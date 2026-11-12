@@ -378,6 +378,38 @@ test("クリックで選択しキーボードで移動先を選べる", async ({
   await expect(folderDialog.getByRole("button", { name: "上へ移動" })).toBeVisible();
 });
 
+test("折りたたまれた移動先に移した後もフォーカスを戻す", async ({ page }) => {
+  const source = page.getByRole("link", { name: "テスト購読" });
+  await source.focus();
+  await page.keyboard.press("Shift+F10");
+  const dialog = page.getByRole("dialog", { name: "「テスト購読」を移動" });
+  await dialog.getByLabel("移動先").selectOption("other");
+  await dialog.getByRole("button", { name: "移動", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "サイドバーを閉じる" })).toBeFocused();
+});
+
+test("移動後に一覧の再読み込みが失敗した場合は通知する", async ({ page }) => {
+  let failReload = false;
+  await page.route("**/api/v1/sources/seed-source", async (route) => {
+    const response = await route.fetch();
+    failReload = true;
+    await route.fulfill({ response });
+  });
+  await page.route("**/api/v1/sources", async (route) => {
+    if (failReload) await route.abort();
+    else await route.continue();
+  });
+  await page.getByRole("link", { name: "テスト購読" }).focus();
+  await page.keyboard.press("Shift+F10");
+  const dialog = page.getByRole("dialog", { name: "「テスト購読」を移動" });
+  await dialog.getByLabel("移動先").selectOption("other");
+  await dialog.getByRole("button", { name: "移動", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "移動しましたが、一覧を更新できませんでした" }),
+  ).toBeVisible();
+});
+
 test("フォルダ設定を小さい画面でも操作できる", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const openSidebar = page.getByRole("button", { name: "サイドバーを開く", exact: true });

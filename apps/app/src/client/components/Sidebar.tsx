@@ -2,7 +2,11 @@ import {
   useEffect,
   useRef,
   useState,
+  type ComponentProps,
   type FormEvent,
+  type MouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type DragEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { normalizeFeedUrl } from "@tayori/shared";
@@ -61,7 +65,7 @@ type MoveHandlers = {
       | "onContextMenu"
       | "onKeyDown"
       | "onDragStart"
-  ]: import("react").ComponentProps<"a">[K];
+  ]: ComponentProps<"a">[K];
 };
 
 /** Renders the sidebar navigation, feed management controls, and OPML actions. */
@@ -309,17 +313,17 @@ export function Sidebar(props: SidebarProps) {
       setDropTarget(null);
       suppressClick.current = false;
     },
-    onContextMenu: (event: import("react").MouseEvent<HTMLAnchorElement>) => {
+    onContextMenu: (event: MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
       if (!folderBusy && !pressRef.current?.active) setMoveDialog(item);
     },
-    onKeyDown: (event: import("react").KeyboardEvent<HTMLAnchorElement>) => {
+    onKeyDown: (event: ReactKeyboardEvent<HTMLAnchorElement>) => {
       if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
         event.preventDefault();
         if (!folderBusy) setMoveDialog(item);
       }
     },
-    onDragStart: (event: import("react").DragEvent<HTMLAnchorElement>) => event.preventDefault(),
+    onDragStart: (event: DragEvent<HTMLAnchorElement>) => event.preventDefault(),
   });
 
   return (
@@ -545,7 +549,12 @@ export function Sidebar(props: SidebarProps) {
                 {status.lastTickAt && (
                   <>
                     <br />
-                    最終更新 {formatDate(status.lastTickAt)}
+                    <span
+                      title="収集スケジューラーの最終実行時刻です。購読先の取得完了時刻ではありません。"
+                      aria-label={`収集スケジューラーの最終実行 ${formatDate(status.lastTickAt)}`}
+                    >
+                      最終更新 {formatDate(status.lastTickAt)}
+                    </span>
                   </>
                 )}
               </>
