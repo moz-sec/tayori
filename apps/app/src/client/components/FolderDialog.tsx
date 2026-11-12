@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { LuX } from "react-icons/lu";
 import { FolderDeleteControl } from "./FolderDeleteControl";
 import { formError, type FormError } from "../lib/form-error";
 import type { Folder, FolderDialog as FolderDialogState } from "../types";
@@ -120,15 +121,29 @@ export function FolderDialog({
         dismiss();
       }}
     >
-      <div className="modal-box">
-        <h2
-          ref={headingRef}
-          id="folder-dialog-title"
-          tabIndex={-1}
-          className="mb-4 text-lg font-bold"
-        >
-          {dialog.mode === "create" ? "フォルダを作成" : "フォルダ設定"}
-        </h2>
+      <div className={dialog.mode === "edit" ? "modal-box tayori-source-settings" : "modal-box"}>
+        <div className={dialog.mode === "edit" ? "tayori-source-settings-header" : undefined}>
+          <h2
+            ref={headingRef}
+            id="folder-dialog-title"
+            tabIndex={-1}
+            className="mb-4 text-lg font-bold"
+          >
+            {dialog.mode === "create" ? "フォルダを作成" : "フォルダ設定"}
+          </h2>
+          {dialog.mode === "edit" && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-square btn-sm"
+              disabled={busy || pending}
+              aria-label="閉じる"
+              title="閉じる"
+              onClick={dismiss}
+            >
+              <LuX aria-hidden="true" />
+            </button>
+          )}
+        </div>
         <form ref={formRef} onSubmit={(event) => void submit(event)} onInput={() => setError(null)}>
           {error && error.field !== "name" && errorMessage}
           <fieldset className="space-y-4" disabled={busy || pending}>
@@ -154,9 +169,11 @@ export function FolderDialog({
               value={dialog.mode === "edit" ? (dialog.folder.parentId ?? "") : ""}
             />
             <div className="modal-action">
-              <button type="button" className="btn btn-ghost" onClick={dismiss}>
-                キャンセル
-              </button>
+              {dialog.mode === "create" && (
+                <button type="button" className="btn btn-ghost" onClick={dismiss}>
+                  キャンセル
+                </button>
+              )}
               <button type="submit" className="btn btn-primary">
                 {busy || pending
                   ? "処理中…"

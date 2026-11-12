@@ -176,7 +176,7 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
         .indexOf("parent");
     })
     .toBe(beforeMove.indexOf("parent") + 1);
-  await dialog.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("button", { name: "「子フォルダ」のフォルダ設定", exact: true }).click();
   await dialog.getByRole("button", { name: "フォルダを削除", exact: true }).click();
   await expect(
@@ -198,6 +198,24 @@ test("フォルダ作成・折りたたみの保持・並べ替え・削除時�
   await expect(
     page.getByRole("button", { name: "テスト購読の購読設定", exact: true }),
   ).toBeVisible();
+});
+
+test("フォルダ設定を小さい画面でも操作できる", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const openSidebar = page.getByRole("button", { name: "サイドバーを開く", exact: true });
+  await expect(openSidebar).toBeVisible();
+  await openSidebar.click();
+  await page.getByRole("button", { name: "「親フォルダ」のフォルダ設定", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "フォルダ設定", exact: true });
+  await expect(dialog.getByRole("heading", { name: "フォルダ設定" })).toBeVisible();
+  await expect(dialog.getByLabel("フォルダ名", { exact: true })).toBeVisible();
+  expect(
+    await dialog
+      .locator(".modal-box")
+      .evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
+  await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
 });
 
 test("記事選択・既読・保存・ページングと再読み込み後の状態", async ({ page }) => {
