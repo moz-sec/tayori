@@ -43,6 +43,18 @@ test("フォルダと購読先を階層に応じて字下げする", async ({ pa
   expect(source!.y).toBeGreaterThan(child!.y);
 });
 
+test("フォルダと購読先の未読数と設定ボタンを右端で揃える", async ({ page }) => {
+  const folder = page.locator(".tayori-folder-row").filter({ hasText: "子フォルダ" });
+  const source = page.locator(".tayori-source-row").filter({ hasText: "テスト購読" });
+  for (const selector of [".badge", 'button[title$="設定"]']) {
+    const folderBox = await folder.locator(selector).boundingBox();
+    const sourceBox = await source.locator(selector).boundingBox();
+    expect(folderBox).not.toBeNull();
+    expect(sourceBox).not.toBeNull();
+    expect(folderBox!.x + folderBox!.width).toBeCloseTo(sourceBox!.x + sourceBox!.width, 0);
+  }
+});
+
 test("購読先のメニューから追加とOPML取り込みを開ける", async ({ page }) => {
   const add = page.getByRole("button", { name: "購読先やフォルダを追加" });
   await add.click();

@@ -232,7 +232,7 @@ export function Sidebar(props: SidebarProps) {
               {visibleFolders.map((folder) => (
                 <li key={folder.id} className="tayori-folder-entry w-full">
                   <div
-                    className="tayori-folder-row flex w-full min-w-0 flex-nowrap items-center gap-0.5"
+                    className="tayori-folder-row flex w-full min-w-0 flex-nowrap items-center gap-1! p-1!"
                     style={{ marginInlineStart: `${Math.min(folder.depth * 16, 96)}px` }}
                   >
                     <button
@@ -255,7 +255,7 @@ export function Sidebar(props: SidebarProps) {
                       )}
                       className={
                         (folderId === folder.id ? "active " : "") +
-                        "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap"
+                        "flex! min-w-0! flex-1! flex-row! flex-nowrap! items-center! justify-start! gap-2! overflow-hidden whitespace-nowrap px-2! py-1!"
                       }
                       onClick={(event) => {
                         if (isPlainNavigation(event)) {
