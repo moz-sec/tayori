@@ -10,6 +10,7 @@ const source: Source = {
   folderId: null,
   title: "Feed",
   url: "https://example.com/feed",
+  siteUrl: "https://publisher.example/blog",
   status: "active",
   unreadCount: 7,
   lastCheckedAt: null,
@@ -57,6 +58,8 @@ describe("feed diagnostics", () => {
       { ...source, id: "s2", title: "Grouped", folderId: "folder", unreadCount: 0 },
     ]);
     expect(html).toContain("未読7件");
+    expect(html).toContain('src="https://publisher.example/favicon.ico"');
+    expect(html).toContain('referrerPolicy="no-referrer"');
     expect(html).toContain("未読0件");
     expect(html).not.toContain("取得状況");
     expect(html).toContain("収集スケジューラー最終実行");

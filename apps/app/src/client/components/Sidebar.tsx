@@ -5,6 +5,7 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { normalizeFeedUrl } from "@tayori/shared";
 import { MoveItemDialog, type MoveItem } from "./MoveItemDialog";
 import { humanError } from "../lib/errors";
 import { FolderDialog as FolderDialogModal } from "./FolderDialog";
@@ -644,6 +645,11 @@ function SourceItem({
             }
           }}
         >
+          <SourceIcon
+            key={`${source.siteUrl ?? ""}|${source.url}`}
+            siteUrl={source.siteUrl}
+            feedUrl={source.url}
+          />
           <span className={`min-w-0 flex-1 truncate ${source.errorCode ? "text-error" : ""}`}>
             {source.title}
             {source.errorCode && <span className="sr-only">（取得エラー）</span>}
@@ -662,6 +668,33 @@ function SourceItem({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Uses the site's conventional favicon, falling back to the feed host and then the RSS icon. */
+function SourceIcon({ siteUrl, feedUrl }: { siteUrl?: string | null; feedUrl: string }) {
+  const urls = [siteUrl, feedUrl]
+    .flatMap((value) => {
+      if (!value) return [];
+      try {
+        const url = new URL(normalizeFeedUrl(value));
+        return [`${url.origin}/favicon.ico`];
+      } catch {
+        return [];
+      }
+    })
+    .filter((url, index, all) => all.indexOf(url) === index);
+  const [attempt, setAttempt] = useState(0);
+  return urls[attempt] ? (
+    <img
+      className="tayori-source-icon"
+      src={urls[attempt]}
+      alt=""
+      referrerPolicy="no-referrer"
+      onError={() => setAttempt((current) => current + 1)}
+    />
+  ) : (
+    <LuRss className="tayori-source-icon tayori-source-icon-fallback" aria-hidden="true" />
   );
 }
 

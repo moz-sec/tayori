@@ -11,6 +11,7 @@ export interface Folder {
 export interface Source {
   id: string;
   generation: number;
+  siteUrl?: string | null;
   folderId: string | null;
   title: string;
   url: string;

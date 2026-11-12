@@ -99,6 +99,16 @@ main h1 {
   color: #303030;
   font-weight: 600;
 }
+.tayori-source-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  object-fit: contain;
+  border-radius: 0.125rem;
+}
+.tayori-source-icon-fallback {
+  color: #707070;
+}
 .tayori-sidebar .badge {
   border: 0;
   background: transparent;

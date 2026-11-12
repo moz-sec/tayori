@@ -55,6 +55,11 @@ test("フォルダと購読先の未読数と設定ボタンを右端で揃え�
   }
 });
 
+test("ファビコンを取得できない場合はRSSアイコンにする", async ({ page }) => {
+  const source = page.locator(".tayori-source-row").filter({ hasText: "テスト購読" });
+  await expect(source.locator(".tayori-source-icon-fallback")).toBeVisible();
+});
+
 test("購読先のメニューから追加とOPML取り込みを開ける", async ({ page }) => {
   const add = page.getByRole("button", { name: "購読先やフォルダを追加" });
   await add.click();
