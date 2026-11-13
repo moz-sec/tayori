@@ -2,6 +2,12 @@
 
 Please provide all answers in Japanese.
 
+## Browser Verification
+
+- Use Agent Browser for interactive browser checks during implementation and debugging. It is installed as a development
+  dependency of `@tayori/app`.
+- Continue to use the existing Playwright E2E tests for automated regression checks and CI.
+
 ## Markdown Proofreading
 
 - If you create a new Markdown file or make changes to an existing one, be sure to read
