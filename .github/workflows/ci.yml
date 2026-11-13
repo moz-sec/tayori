@@ -28,6 +28,35 @@ jobs:
       - name: Verify action dependencies
         run: gh actions-lock --verify
 
+  visual:
+    name: Visual regression
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --shm-size=1g
+    env:
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:visual
+      - name: Upload visual failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: visual-regression-diagnostics
+          path: |
+            output/playwright/
+            apps/app/playwright-report/
+          retention-days: 7
+
   test:
     name: Format, lint, test and build
     runs-on: ubuntu-26.04
