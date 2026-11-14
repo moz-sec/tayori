@@ -8,6 +8,10 @@ Please provide all answers in Japanese.
   dependency of `@tayori/app`.
 - Continue to use the existing Playwright E2E tests for automated regression checks and CI.
 
+## Documentation
+
+- Do not create new documentation files, add information to existing documents in `docs/`.
+
 ## Markdown Proofreading
 
 - If you create a new Markdown file or make changes to an existing one, be sure to read
