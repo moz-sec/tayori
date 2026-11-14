@@ -12,6 +12,14 @@ test.beforeEach(async ({ request, page }) => {
   });
 });
 
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status !== "passed") return;
+  await testInfo.attach("画面", {
+    body: await page.screenshot({ animations: "disabled", caret: "hide" }),
+    contentType: "image/png",
+  });
+});
+
 test("記事一覧とサイドバーの表示", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page).toHaveScreenshot("reader-desktop.png");
