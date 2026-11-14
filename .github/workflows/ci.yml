@@ -28,6 +28,111 @@ jobs:
       - name: Verify action dependencies
         run: gh actions-lock --verify
 
+  visual-changes:
+    name: Detect visual changes
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: check
+        name: Check changed files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          elif git diff --quiet --no-renames "$BASE_SHA...$HEAD_SHA" -- apps/app/ packages/shared/ migrations/; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            if [ "$result" -ne 1 ]; then
+              exit "$result"
+            fi
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  visual:
+    name: Visual regression
+    needs: visual-changes
+    if: needs.visual-changes.outputs.run == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    outputs:
+      artifact-url: ${{ steps.visual-artifact.outputs.artifact-url }}
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
+      options: --shm-size=1g
+    env:
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:visual
+      - name: Upload visual results
+        id: visual-artifact
+        if: success() || failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: visual-regression-results
+          path: |
+            output/playwright/
+            apps/app/playwright-report/
+          retention-days: 7
+
+  visual-comment:
+    name: Publish visual results link
+    needs: visual
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.visual.outputs.artifact-url != ''
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Create or update pull request comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ARTIFACT_URL: ${{ needs.visual.outputs.artifact-url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          current_head=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
+          if [ "$current_head" != "$HEAD_SHA" ]; then
+            echo 'A newer commit exists; skipping the outdated comment.'
+            exit 0
+          fi
+          marker='<!-- tayori-visual-results -->'
+          body=$(printf '%s\n\n%s\n\n%s\n\n%s' "$marker" \
+            '### 画面の確認結果' \
+            "[スクリーンショットと実行結果をダウンロード]($ARTIFACT_URL)（保存期間：7日間）" \
+            "対象コミット: \`$HEAD_SHA\` · [Actionsの実行]($RUN_URL)")
+          comment_id=$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- tayori-visual-results -->")) | .id' | head -n 1)
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/$REPOSITORY/issues/comments/$comment_id" -f "body=$body" >/dev/null
+          else
+            gh api --method POST "repos/$REPOSITORY/issues/$PR_NUMBER/comments" -f "body=$body" >/dev/null
+          fi
+
   test:
     name: Format, lint, test and build
     runs-on: ubuntu-26.04

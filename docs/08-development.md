@@ -127,7 +127,28 @@ npx playwright show-report apps/app/playwright-report
 npx playwright show-trace output/playwright/test-results/<失敗したテスト>/trace.zip
 ```
 
-CIは既存の型チェック・単体/結合テスト・ビルドに加えてChromiumのこの7フローだけを実行し、失敗時の成果物を7日間保存する。
+CIは型チェック・単体/結合テスト・ビルドに加えてChromiumのE2Eテストを実行し、失敗時の成果物を7日間保存する。
+
+### 画面の見た目の確認
+
+Playwrightで記事一覧のPC幅とスマートフォン幅を基準画像と比較する。通常のE2Eテストとは別に、CIのLinuxコンテナで実行する。
+PRでは `apps/app/**`、`packages/shared/**`、`migrations/**` のいずれかに変更がある場合に実行する。手動実行では変更箇所にかかわらず実行する。
+テスト用データを使い、記事の日時表示は固定して比較する。成功時のスクリーンショットと、失敗時の基準画像・実際の画像・差分画像はCIの成果物に7日間保存する。
+同じリポジトリからのPRには、成果物へのリンクをコメントする。リンクからのダウンロードにはGitHubへのログインが必要。フォークからのPRでは、Actionsの実行画面から成果物を確認する。
+
+意図した画面変更に合わせて基準画像を更新するときは、リポジトリのルートから次を実行する。CIと同じブラウザーとフォントを使うため、DockerのLinux/amd64環境で画像を作る。更新後は画像の差分を確認してコミットする。
+
+```sh
+docker run --rm --platform linux/amd64 --shm-size=1g \
+  -e CI=true -e TZ=UTC -v "$PWD:/workspace" \
+  --mount type=volume,destination=/workspace/node_modules -w /workspace \
+  mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f \
+  bash -lc 'npm install --prefix /tmp/node24 node@24.22.1 npm@12.2.1 && \
+    export PATH=/tmp/node24/node_modules/.bin:$PATH && npm ci && \
+    npm run test:visual --workspace @tayori/app -- --update-snapshots'
+```
+
+画像はプラットフォームやフォントの違いでも変わるため、別の環境で作った画像をCIの基準画像に使わない。Playwrightを更新するときは、CIとこの手順のコンテナイメージも対応するバージョンに更新し、基準画像を作り直す。
 
 ## 5. リリース手順
 

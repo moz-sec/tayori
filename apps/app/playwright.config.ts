@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: "**/*.visual.spec.ts",
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
