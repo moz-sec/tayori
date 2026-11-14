@@ -28,8 +28,41 @@ jobs:
       - name: Verify action dependencies
         run: gh actions-lock --verify
 
+  visual-changes:
+    name: Detect visual changes
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: check
+        name: Check changed files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          elif git diff --quiet --no-renames "$BASE_SHA...$HEAD_SHA" -- apps/app/ packages/shared/ migrations/; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            if [ "$result" -ne 1 ]; then
+              exit "$result"
+            fi
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+
   visual:
     name: Visual regression
+    needs: visual-changes
+    if: needs.visual-changes.outputs.run == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     container:
